@@ -1,0 +1,751 @@
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Детектор транспорта</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" media="screen">
+    <!--link rel="stylesheet" href="../style.css" media="all"-->
+    <script src="{{ url_for('static', filename='raphael.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='poly.js') }}"></script>
+    <script type=text/javascript src="{{ url_for('static', filename='jquery-latest.min.js') }}"></script>
+    <script type=text/javascript>
+        // изменения от 14.03 устранена невозможность редактирования после сохранения.
+        // изменения от 31.10 введены типы рамок - проезд и остановка. Данные типов хранятся в polygones.dat
+        window.onload = function () {
+            var W = document.getElementById('img_div').style.width.slice(0, -2), /*убирает "px" в конце*/
+                H = document.getElementById('img_div').style.height.slice(0, -2),
+                r = Raphael("holder", W, H);
+            var req = r.set; // массив  для хранения данных полигонов (похоже что это не r.set, а строка(см. вызовы convertPolyToString)
+            var polygones = r.set(); 	//массив полигонов
+            var rects = r.set(); 		// квадратики по углам полигонов
+            var arrows = r.set();		// направления движения в рамках для настройки в web интерфейсе 
+			var setArrows =[]; 			// массив в котором лежат стрелки, где каждый член - стрелки отдельного полигона	
+			// var directionsSrv = r.set();// направления движения в рамке принятые с сервера и после радактирования отсылаемые на сервер. отказался...
+            var rectsCover = r.set(); 	// массив четверок квадратиков по углам полигонов
+            var nums = r.set(); 		// номера по которым работает функция построения
+            var nums_poly = r.set(); 	// номера полигонов которые отображаются на странице
+            var modes_poly = r.set();	// буквы, обозначающие режимы работы рамок(полигонов) 0(П) - присутствие, 1(О) - остановка
+            var pt = [];  				// строка задания path полигона
+            var k = 0; 					// номер полигона
+            var polyFromServer = 6;		// структура содержащая данные полигонов и режимы работы. 6 - дефолт для диагностики
+            var polygonNumber;
+            var ramkiModes; 			// вспомогательный массив, использующийся в назначении режимов работы рамок.
+			var ramkiArrows;			// вспомогательный массив, исп. для хранения статуса стрелок с сервера.
+            var editMode = 0;
+            var zeroPolyAlert = document.getElementById('zeroPolyAlert'); // надпись о том что с сервера нет полигонов.
+            var editModeAlert = document.getElementById('editModeAlert'); // индикатор режима Редактирования
+            var ipSettingsData = document.getElementById('IP_settings_data'); // статус связи с коммутатором
+            var polyData = document.getElementById('polyData'); //
+
+            // при попытке вытащить ф-цию в другой файл polyFromServer становится undefined; причины - она не успевает
+            // получить ответ от сервера
+            function getPolyFromServerPHP(req) { // загружает данные полигонов из файла при открытии страницы в браузере
+                //console.log("getPolyFromServer Entrance   ");
+                //var polyFromServer;
+                var xmlhttp = getXmlHttp(); // Создаём объект XMLHTTP
+                xmlhttp.open('POST', 'post_handler_getPoly.php', true); // Открываем асинхронное соединение чтоб браузер не ждал
+                xmlhttp.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded'); // Отправляем кодировку (не выключать)
+                //console.log("req = ",req);
+                xmlhttp.send("req=" + encodeURIComponent(req)); // Отправляем POST-запрос
+                xmlhttp.onreadystatechange = function () { // Ждём ответа от сервера
+                    if (xmlhttp.readyState == 4) { // Ответ пришёл
+                        if (xmlhttp.status == 200) { // Сервер вернул код 200 (что хорошо)
+                            //console.log("Server says 200!!",encodeURIComponent(req));
+                            //console.log('polyFromServer = ',polyFromServer);
+                            polyFromServer = xmlhttp.responseText; // Выводим ответ сервера
+                            //console.log("text response got from server: ",polyFromServer,"polyFromServer.indexOf('polygones')",polyFromServer.indexOf('polygones'));
+                            if (polyFromServer.indexOf('polygones') >= 0) { // если файл с данными полигонов пустой, в нем не будет строки "polygones"
+                                polyFromServer = JSON.parse(polyFromServer);
+                                //console.log("polygones got from server: ",polyFromServer);
+                                zeroPolyAlert.innerHTML = ""; // удаляем надпись о том, что данные полигонов не заданы
+                                ramkiModes = polyFromServer.ramkiModes; //промежуточная переменная нужная для работы assygnPolygonMode
+								ramkiArrows = polyFromServer.ramkiDirections;
+                                //console.log("ramkiModes",ramkiModes);
+                                return (polyFromServer);
+                            }
+                            else {
+                                zeroPolyAlert.innerHTML = "Данные зон детектирования не заданы";
+                                return 0;
+                            }
+
+                        }
+                    }
+                };
+                //xmlhttp.onreadystatechange = anonim();
+                //console.log("polygones got from server 2: ",polyFromServer);
+
+                return (polyFromServer);
+            }
+            // назначает номера полигонов. при попытке переместить в файл не находит r,nums_poly,polygones
+            function assygnPolygonNumber() {
+                nums_poly.remove(); // при каждом вызове сначала удаляем все полигоны
+                for (i = nums_poly.length - 1; i >= 0; i--)
+                    nums_poly.splice(i, 1); // это тоже для удаления в дополнение к тому что выше, иначе не удаляется
+                var attr = {font: "25px Helvetica", opacity: 0.7, fill: "yellow"};
+                for (ii = 0; ii < polygones.length; ii++) {
+                    text = ii + 1;
+                    //console.log("polygones ii =", polygones[ii]);
+                    x1 = polygones[ii].attr("path")[0][1]; //координаты точек полигона
+                    y1 = polygones[ii].attr("path")[0][2];
+                    x2 = polygones[ii].attr("path")[1][1];
+                    y2 = polygones[ii].attr("path")[1][2];
+                    x3 = polygones[ii].attr("path")[2][1];
+                    y3 = polygones[ii].attr("path")[2][2];
+                    x4 = polygones[ii].attr("path")[3][1];
+                    y4 = polygones[ii].attr("path")[3][2];
+
+                    x12 = (x1 + x2) / 2; // координаты проекций середины
+                    x23 = (x2 + x3) / 2;
+                    x34 = (x3 + x4) / 2;
+                    x41 = (x4 + x1) / 2;
+                    y12 = (y1 + y2) / 2;
+                    y23 = (y2 + y3) / 2;
+                    y34 = (y3 + y4) / 2;
+                    y41 = (y4 + y1) / 2;
+
+                    var np = nums_poly.push(r.text((x12 + x34) / 2 - 12, (y23 + y41) / 2, text).attr(attr));
+                }
+            }
+            // отображает режим работы рамки 0(П) - присутствие, 1(О) - остановка
+            function assygnPolygonMode() {
+                var internFlag = 0;
+                modes_poly.remove(); // при каждом вызове сначала удаляем все режимы рамок, иначе их призраки остаются на экране
+                for (i = modes_poly.length - 1; i >= 0; i--)
+                    modes_poly.splice(i, 1); // это тоже для удаления в дополнение к тому что выше, иначе не удаляется
+                var attr = {font: "25px Helvetica", opacity: 0.7, fill: "yellow", number: "number"};
+                // если на сервере ничего нет, задаем пустые рамки
+                if (ramkiModes == undefined) {
+                    text = '-П';
+                    ramkiModes = new Array(polygones.length);
+                    for (ii = 0; ii < polygones.length; ii++)
+                        ramkiModes[ii] = 0;
+                }
+                for (ii = 0; ii < polygones.length; ii++) {
+                    //эта штука просто подготавливает текст для картинки.
+                    if (ramkiModes[ii] > 0)
+                        text = '-О';
+                    else
+                        text = '-П';
+                    {
+                        x1 = polygones[ii].attr("path")[0][1]; //тут фиксируются в переменных координаты точек полигона
+                        y1 = polygones[ii].attr("path")[0][2];
+                        x2 = polygones[ii].attr("path")[1][1];
+                        y2 = polygones[ii].attr("path")[1][2];
+                        x3 = polygones[ii].attr("path")[2][1];
+                        y3 = polygones[ii].attr("path")[2][2];
+                        x4 = polygones[ii].attr("path")[3][1];
+                        y4 = polygones[ii].attr("path")[3][2];
+
+                        x12 = (x1 + x2) / 2; // координаты проекций середины
+                        x23 = (x2 + x3) / 2;
+                        x34 = (x3 + x4) / 2;
+                        x41 = (x4 + x1) / 2;
+                        y12 = (y1 + y2) / 2;
+                        y23 = (y2 + y3) / 2;
+                        y34 = (y3 + y4) / 2;
+                        y41 = (y4 + y1) / 2;
+                    }
+                    var mp = modes_poly.push(r.text((x12 + x34) / 2 + 9, (y23 + y41) / 2, text).attr(attr))
+                        .mousedown(function () {
+                            modes_polyNumber = null;
+                            for (l = 0; l < modes_poly.length; l++) { // определяем в какой элемент ткнули мышой соспоставляя координаты текущего с каждым, номер совпавшего запоминаем
+                                if (modes_poly[l].attr("x") == this.attr("x") & modes_poly[l].attr("y") == this.attr("y"))
+                                    modes_polyNumber = l;
+                            }
+                            if (editMode == 1) {
+                                if (internFlag == 0 & this.attr("text") == '-П') {
+                                    this.attr({"text": "-О"});//this.attr("text")=='О';
+                                    ramkiModes[modes_polyNumber] = 1;
+                                }
+                                else if (internFlag == 0) {
+                                    this.attr({"text": "-П"});
+                                    ramkiModes[modes_polyNumber] = 0;
+                                }
+                                internFlag = 1;
+                            }
+                            else
+                                notEditModeAlert();
+                        })
+                        .mouseup(function () {
+                            req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // req - строка состояния, которая отображает все статусы полигонов
+                            sendPolyToServerPHP(req);
+                            internFlag = 0; //эта затычка нужна потому, что .mousedown вызывается несколько раз при однократном нажатии(хз почему)
+                        })
+                        .mouseover(function () {
+                            if (editMode == 1)
+                                this.node.style.cursor = "pointer";
+                        })
+                }
+                return 0;
+            }
+			function assygnArrowsMode(){ // ф-ция расставляет рамки всех полигонов на экране. анализируя ramkiArrows.
+				//console.log("assygnArrowsMode entrance!");
+				if (ramkiArrows==undefined||ramkiArrows.length==0)
+					putNullsToRamkiArrows();
+				while (ramkiArrows.length<polygones.length) // если рамки не соотв. полигонам надставляем ( при добавлении нового)
+					ramkiArrows.push([0,0,0,0]);
+				while (ramkiArrows.length>polygones.length)	// сюда не заходит, т.к. лишнее в ramkiArrows удаляется в даблклике, при уалени полигона, сделано для безопасности.
+					ramkiArrows.pop();
+				for (var i=0;i<polygones.length;i++){ //для каждого полигона вызываем вспом ф-цию рисования стрелочек. 
+					//console.log('polygones[i].attr(path)',polygones[i].attr("path"));
+					directionArrowsCreate(i,polygones[i].attr("path"));
+				}
+			}
+            var mainRect = r.rect(0, 0, W - 0, H/*-100*/).attr({fill: "#fff", opacity: 0}); //
+            var mainRect2 = r.rect(0, 0, W - 0, H/*-100*/).attr({fill: "none", opacity: 0.3}); // только для отображения границ
+            //console.log("editMode = ",editMode);
+            // сдвиг левого верхнего угла картинки, slice - для удаления "px" с конца
+            var leftCornerShiftX = document.getElementById('img_div').style.left.slice(0, -2);
+            var leftCornerShiftY = document.getElementById('img_div').style.top.slice(0, -2);
+            //polyFromServer = getPolyFromServerPHP(req); // забирает данные полигонов с сервера
+			function putNullsToRamkiArrows(){
+				if (ramkiArrows==undefined){ //если с сервера ничего не считалось( ну мало-ли что) создаем массив набитый нулями
+					ramkiArrows=[];
+					for(var i=0;i<polygones.length;i++)
+						ramkiArrows.push([0,0,0,0]);
+				}
+			}
+            function dirsPath(path) { // функция делает path для стрелочек направлений из path рамок. формат аргумента такой: [["M", 186, 322],["L", 186, 322]....
+               var arrowsPath=[[[],[],[]],[[],[],[]],[[],[],[]],[[],[],[]]]; // результирующий массив с координатами точек стрелочек вида [[[x,y],[x,y],[x,y]],[..],[..],[..]]
+//                console.log(path[0][1]);
+                for (polyKernel=0;polyKernel<4;polyKernel++){ //перебираем по всем 4-м углам полигона начиная с левого верхнего, создавая 4 стрелки
+                    x1=arrowsPath[polyKernel][0][0] = path[polyKernel][1];          // координата x 1 угла стрелки совпадает с x первого угла полигона
+                    y1=arrowsPath[polyKernel][0][1] = path[polyKernel][2];          // то-же для y
+                    if (polyKernel<3) {                                               // для третьего угла полигона второй угол рамки будет нулевой угол полигона
+                        x2 = arrowsPath[polyKernel][1][0] = path[polyKernel + 1][1];    // координата x 2 угла стрелки совпадает с x второго угла полигона
+                        y2 = arrowsPath[polyKernel][1][1] = path[polyKernel + 1][2];        // то-же для y
+                    }
+                    else {
+                        x2 = arrowsPath[polyKernel][1][0] = path[0][1];
+                        y2 = arrowsPath[polyKernel][1][1] = path[0][2];
+                    }
+                    // найдем стороны прямоугольного треугольника - половинки основания стрелки
+                    var a = Math.sqrt((x2-x1)*(x2-x1)+(y1-y2)*(y1-y2))/2;//первый катет
+                    var b=a/2;                                           //второй катет просто задается как половина первого
+                    if (b>30) b = 30;                                       // чтоб стрелка не сильно выпирала на больших полигонах
+                    var с=Math.sqrt(a*a+b*b);                            //гипотенуза
+                    alfa = Math.atan((y1-y2)/(x2-x1));               //угол поворота основания стрелки к горизонту в радианах
+                    shiftX = (Math.cos(alfa+Math.asin(b/с)))*с;                     // вспомогательные величины смещения по X
+                    shiftY = (Math.sin(alfa+Math.asin(b/с)))*с;                     // вспомогательные величины смещения по Y
+                    if (polyKernel!=2){
+                        x3 = arrowsPath[polyKernel][2][0] = shiftX+x1;                  // координата x 3 угла стрелки
+                        y3 = arrowsPath[polyKernel][2][1] = -shiftY+y1;
+                    }
+                    else {
+                        x3 = arrowsPath[polyKernel][2][0] = -shiftX + x1;
+                        y3 = arrowsPath[polyKernel][2][1] = shiftY + y1;
+                    }// координата y 3 угла стрелки
+                    if (polyKernel==3|polyKernel==1){
+                        if (x1>x2){
+                            x3 = arrowsPath[polyKernel][2][0] = -shiftX+x1;
+                            y3 = arrowsPath[polyKernel][2][1] = shiftY+y1;
+                        }
+                    }
+                }
+                //console.log("arrowsPath = ",arrowsPath);
+                return (arrowsPath);
+            }
+            function directionArrowsCreate(polygonNumber, path) { //функция, которая построит стрелочки направления движения в рамке для 1 полигона.
+				var strokeWidth;
+				var opacity = 0.7;
+				if (setArrows==null|setArrows==undefined)
+					setArrows = new Array(polygones.length);
+				//console.log("ramkiArrows=",ramkiArrows);
+				//console.log("polygones.length=",polygones.length);
+				if (ramkiArrows==undefined||ramkiArrows.length==0) //если с сервера ничего не считалось( ну мало-ли что) создаем массив набитый нулями
+					putNullsToRamkiArrows();
+				arrPath = dirsPath(path); // из path полигончиков делает стрелочки направления движения в рамке.
+				for (polyKernel=0;polyKernel<4;polyKernel++){
+					//console.log("polygones.length=",polygones.length);
+					//console.log("ramkiArrows=",ramkiArrows);
+					if(ramkiArrows[polygonNumber][polyKernel]==0){
+						strokeWidth=0;
+						//opacity = 0.3;
+					}
+					else{
+						strokeWidth=3;
+						opacity = 0.7;
+					}
+					setArrows[polygonNumber] = arrows.push(r.path("M" + arrPath[polyKernel][0][0] +" "+(arrPath[polyKernel][0][1])+
+						"L" +(arrPath[polyKernel][1][0])+" "+(arrPath[polyKernel][1][1])+
+						"L" +(arrPath[polyKernel][2][0])+" "+(arrPath[polyKernel][2][1])+
+						"Z")
+						.attr({	stroke: "red",fill: "transparent",
+								"stroke-width":strokeWidth,
+								opacity: opacity
+							 }) // транспарент почему-то не хочет меняться ни на что другое.
+						.data("arrowNumber",polyKernel) 
+						.data("polygonNumber",polygonNumber) //тут важно: data относится к r.path, см. на круглые скобки
+						//.attr({stroke: "red",fill:"white",opacity: 0.3})) 
+						.mouseover(function(){
+							if (editMode == 1) {
+								this.attr({"stroke":"red","stroke-width":"3","opacity":"0.7"});
+								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
+									this.attr({"stroke-width":"3"})	
+							}		
+						})
+						.mouseout(function(){
+							if (editMode == 1) {
+								this.attr({"stroke":"red","stroke-width":"0","opacity":"0.3"})
+								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
+									this.attr({"stroke-width":"3","opacity":"0.6"})
+							}				
+						})
+						.mousedown(function(){
+							if (editMode == 1) {
+								this.attr({fill:"red","stroke-width":"3","opacity":"0.6"})
+								//тут при клике в массив состояний стрелок ramkiArrows должна добавляться стрелка, если ее там еще нет, или удаляться, если она там есть.
+								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==0)
+									ramkiArrows[polygonNumber][this.data("arrowNumber")]=1
+								else
+									ramkiArrows[polygonNumber][this.data("arrowNumber")]=0							
+								//console.log("click!",this.data("arrowNumber"),this.data("polygonNumberA"));
+								//console.log("click! - ramkiArrows",ramkiArrows);
+							}
+						})
+						.mouseup(function(){
+							if (editMode == 1) {
+								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
+									this.attr({"stroke-width":"3","opacity":"0.6"})	
+								else
+									this.attr({"stroke-width":"0","opacity":"0.3"})	
+								//supp = function(){ //сомнительное решение, ничего не дает....
+									//console.log("supp!");
+									assygnArrowsMode();
+									req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
+									sendPolyToServerPHP(req);
+								//};
+								//setTimeout(supp,3000);	
+							}
+						})
+						) 
+				}
+				//console.log("setArrows=",setArrows)
+            };
+            ff = function (k, i) {
+                polygones.push(
+                    r.path(path).attr({stroke: "red", fill: "red", opacity: 0.5})
+						.data("polygonNumber",i)
+                        .mousedown(function () {
+                            if (editMode == 1) {
+                                //console.log("from интерн mdown: polygonNumber",polygonNumber);
+                                begin_path = this.attr("path");
+                                minx = Math.min.apply(null, [begin_path[0][1], begin_path[1][1], begin_path[2][1], begin_path[3][1]]); //минимальное число x в полигоне // это надо чтобы полигон за границы не выезжал
+                                maxx = Math.max.apply(null, [begin_path[0][1], begin_path[1][1], begin_path[2][1], begin_path[3][1]]); //максимальное число x в полигоне
+                                miny = Math.min.apply(null, [begin_path[0][2], begin_path[1][2], begin_path[2][2], begin_path[3][2]]); //минимальное число y в полигоне
+                                maxy = Math.max.apply(null, [begin_path[0][2], begin_path[1][2], begin_path[2][2], begin_path[3][2]]); //максимальное число y в полигоне
+                                //console.log('minx',minx);
+                                if (rects != null) rects.remove();
+                                if (arrows != null) arrows.remove();
+                                // выясняем на каком полигоне приземлились мышкой
+                                //for (i = 0; i < polygones.length; i++) {
+                                //    if (polygones[i].attr("path")[0][1] == this.attr("path")[0][1] & polygones[i].attr("path")[0][2] == //this.attr("path")[0][2])
+                                //        polygonNumber = i;
+                                //    //console.log("from mdown: polygonNumber",polygonNumber);
+                                //}
+                            }
+                            else
+                                notEditModeAlert();
+                        })
+                        .mouseup(function () {
+                            if (editMode == 1) {
+                                //console.log(".ommouseup внутри ->  nums_poly = ",nums_poly);
+                                if (nums_poly != null) nums_poly.remove();
+                                if (rects != null) rects.remove(); // удаляем квадратики по углам, если они там остались от каких-то предыдущих действий
+                                if (arrows != null) arrows.remove(); // так же удаляем срелки направлений
+                                path_ = this.attr("path");
+                                // если начать строить полигон у нижнего или правого края окна, может случиться, что полигон нарисуется вне окна.
+                                // надо его тогда приподнять и/или отдвинуть влево
+                                //console.log('path_[i][1]',path_[0][1],path_[1][1],path_[2][1],path_[3][1]);
+                                //console.log('path_[i][2]',path_[0][2],path_[1][2],path_[2][2],path_[3][2]);
+                                if (path_[1][1] > W) { // если вторая точна выползла то подвинуть влево все
+                                    jumpx = path_[1][1] - W;
+                                    for (i = 0; i < 4; i++) path_[i][1] -= jumpx;
+                                    //this.attr({path:path_});
+                                }
+                                if (path_[2][2] > H) { // если 3 точка выползла, то приподнять все
+                                    jumpy = path_[2][2] - H;
+                                    for (i = 0; i < 4; i++) path_[i][2] -= jumpy;
+                                    //this.attr({path:path_});
+                                }
+                                this.attr({path: path_});
+                                //if (maxy>H) for (i=0;i,4;i++) path_[i][2]-=maxy-H;
+                                // для всех 4-х углов полигона рисуем квадратики за которые будем таскать
+                                for (ii = rects.length - 1; ii >= 0; ii--) rects.pop();//splice(i,1); //удалем старые квадратики перед созд. новых
+                                for (ii = arrows.length - 1; ii >= 0; ii--) arrows.pop(); //удалем старые стрелки направлений перед созд. новых
+                                for (ii = 0; ii < 4; ii++) { 
+                                    var internalFlag=0;
+                                    var rec = rects.push(r.rect(path_[ii][1] - 10, path_[ii][2] - 10, 20, 20).attr({stroke: "red",fill: "yellow",opacity: 0.5}))
+                                        .drag(function (dx, dy, x, y) { // таскать за квадратики по углам
+                                            //internalFlag=1;
+                                            if (arrows != null) arrows.remove(); // удаляем срелки направлений
+                                            x = x - leftCornerShiftX;
+                                            y = y - leftCornerShiftY;
+                                            //this.attr({height:20,width:20,x:x-10,y:y-10});
+                                            this.attr({height: 20, width: 20});
+                                            var new_path = polygones[k - 1].attr("path");
+                                            var numOfRect;
+                                            for (j = 0; j < rects.length; j++) {
+                                                if (rects[j].attr("x") == this.attr("x") & rects[j].attr("y") == this.attr("y")) numOfRect = j;
+                                                //console.log("numOfRect=",numOfRect);
+                                            }
+                                            //console.log("this.attr(x,y) = ",this.attr("x"),this.attr("y"));
+                                            //console.log("numOfRect =  ",numOfRect);
+                                            if (x > 0 && x < W) {
+                                                new_path[numOfRect][1] = x;
+                                                this.attr({x: x - 10});
+                                            }
+                                            if (y > 0 && y < H) {
+                                                new_path[numOfRect][2] = y;
+                                                this.attr({y: y - 10});
+                                            }
+                                            polygones[k - 1].attr({path: new_path});
+                                            assygnPolygonNumber();
+                                            assygnPolygonMode();
+                                            req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // *********************** //
+                                        })
+//                                        .mouseup(function () { // кароч ничо тут не выходит. хотел стрелки рисовать не вышло. потом мож руки дойдут...
+//                                            if (arrows != null) arrows.remove();
+//                                            for (i = arrows.length - 1; i >= 0; i--) arrows.pop(); //удалем старые стрелки направлений перед созд. новых
+//                                            console.log("from mUp на квадрате",arrows)
+//                                            if (internalFlag==1){
+//                                                var new_path = polygones[k - 1].attr("path");
+//                                                for(i=0;i<4;i++) {
+//                                                    console.log("na kvadratah!", i, arrows);
+//                                                    directionArrowsCreate(this.data("polygonNumber"),new_path); //создаем стрелки
+//                                                };
+//                                                internalFlag=0; //выполняем только 1 раз, а не 4.
+//                                            }
+//                                        });
+								}
+								// теперь рисуем стрелки направлений
+								directionArrowsCreate(this.data("polygonNumber"),path_); // в функцию создания стрелок передается номер и path полигона. 
+								//console.log("this.data(polygonNumber)=",this.data("polygonNumber"));
+                                rectsCover.push(rec); // и потом их суем в общий для них всех сет
+                                text = k;//this.start.k;
+                                // расставляем номера полигонов
+                                assygnPolygonNumber();
+                                assygnPolygonMode();
+								assygnArrowsMode();
+								//console.log("setArrows=",setArrows);
+								req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
+                                sendPolyToServerPHP(req);
+                            }
+                            else
+                                notEditModeAlert();
+							//console.log("polygones.length=",polygones.length);
+                        })
+                        .dblclick(function () {  // по двойному клику удаляется полигон
+                            if (editMode == 1) {
+								pnumber= this.data("polygonNumber"); // номер полигона, который мочим, пригодится.
+								if (nums_poly != null) nums_poly.remove();
+                                polygones.splice(this.start.k - 1, 1); //polygones.pop(1); // удаляет элемент из массива полигонов
+                                this.remove(); // удаляет прямоугольник
+                                if (rects != null) rects.remove();
+                                if (arrows != null) arrows.remove();
+                                //console.log("this.start из doubleclick end= ",k);
+                                //console.log("polygones from dblcklick до del: !! ", polygones); // ок, полигоны не содержат одного удаленного
+                                /*/ попробовать быстрый путь: сбросить полигоны после удаления на сервак и перезагрузить страницу.
+                                // это работает ограниченно: после перезагрузки не устанавливается назад режим редактирования и и текст кнопки сохранить.
+                                   setTimeout в этом случае не выход, см ниже , т.к. в него управление тупо не заходит, оно теряется после перезагрузки.
+                                   req=convertPolyToString(polygones,W,H,modes_poly,ramkiArrows);
+                                   sendPolyToServerPHP(req);
+                                // перезагрузить страницу
+                                   document.location.reload();	//перезагрузка страницы
+                                   setTimeout(function(){
+                                      editMode = 1;	// включить р.р. , бо он выключается после перезагрузки ,
+                                      editButton.value ='Сохранить'; // и кнопку вернуть как была
+                                   },500);
+                                //*/
+                                // другой путь: без перезагрузки страницы. path всех полигонов (без удаленного) сохраняем в переменной, потом все удаляем и по новой вызываем ff()
+                                //temp_polygones=polygones; // так нельзя. объекты js всегда передаются по ссылке
+                                //temp_polygones=polygones.clone(); // рафаэлевский метод клонирования объектов не годится - после него появляются прямоугольники откуда не ждали
+                                // не буду делать клон всего объекта, сделаю только список path полигонов потом полигоны удалю
+                                pathList = []; // сюда перед удалением сгрузим все path всех полигонов
+                                for (i = 0; i < polygones.length; i++) {
+                                    pathList[i] = polygones.items[i].attr("path"); //массив углов полигона
+                                }
+                                delete_all();
+                                //console.log("polygones from dblcklick после del:  !! ", polygones); // ок, полигоны пустые!
+                                //console.log("path from dblcklick после del:  !! ", pathList);
+                                for (i = 0; i < pathList.length; i++) {
+                                    k = i + 1;
+                                    path = pathList[i]; //массив углов полигона
+                                    ff(k, i);
+                                    //console.log("k=====",k,i)
+                                }
+                                assygnPolygonNumber();
+                                assygnPolygonMode();
+								// перед assygnArrowsMode надо удалить кусок ramkiArrows именно этого полигона иначе рамки кочуют к другим полигонам. 
+								// а также удалить и 
+								ramkiArrows.splice(pnumber,1);
+								setArrows.splice(pnumber,1);
+								assygnArrowsMode();
+                                req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // ************************************** //
+								sendPolyToServerPHP(req);
+                                winOnmouseUp(); // при даблклике не происходит события поднятия мыши над окном. не знаю почему, поэтому вызываем функцию, которую выполняет это событие, когда оно происходит.
+                                //console.log("k после win mouse Up",k);
+                                //*/
+                            }
+                            else
+                                notEditModeAlert();
+                        })
+                        .drag(function (dx, dy, x, y) {
+                                if (editMode == 1) {
+                                    if (rects != null) rects.remove();
+                                    if (arrows != null) arrows.remove();
+                                    path_ = this.attr("path");
+                                    for (i = 0; i < 4; i++) {
+                                        if (minx + dx > 0 && maxx + dx < W) path_[i][1] = begin_path[i][1] + dx; // если углы полигона не выходят за края окна, двигаем его по x
+                                        if (miny + dy > 0 && maxy + dy < H) path_[i][2] = begin_path[i][2] + dy; // и по y
+                                    }
+                                    ;
+                                    this.attr({path: path_});
+                                    assygnPolygonMode();
+                                    assygnPolygonNumber();
+                                    req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // ************************************** //
+                                }
+                                else
+                                    notEditModeAlert();
+                            }, function (x, y) {
+                                //console.log("from func under drug: k=",k);
+                                this.start = {k: k};
+                            }
+                        )//*/
+                )
+            }
+
+            // функция рисует полигоны
+            function circleff() {
+                if (polyFromServer.polygones !== undefined) {
+                    for (i = 0; i < polyFromServer.polygones.length; i++) {
+                        //console.log("k==",k,i)
+                        k = i + 1;
+                        corners = polyFromServer.polygones[i]; //массив углов полигона
+                        path = ["M", corners[0][0], corners[0][1], "L", corners[1][0], corners[1][1], "L", corners[2][0], corners[2][1], "L", corners[3][0], corners[3][1], "Z"];
+                        //console.log("path из цикла =",path);
+                        ff(k, i);
+                        //k++;
+                        //console.log("k=====",k,i)
+                    }
+                }
+                else {
+                    //alert("данные зон детектирования не заданы");
+                    path = [];
+                }
+            }
+            var serverAnswerDelTime = 50;
+            setTimeout(circleff, serverAnswerDelTime);
+            setTimeout(assygnPolygonNumber, serverAnswerDelTime + 10);
+            setTimeout(assygnPolygonMode, serverAnswerDelTime + 15);
+			setTimeout(assygnArrowsMode, serverAnswerDelTime +20);
+
+            //console.log("!!!!editMode = ",editMode);
+            // обеспечивает функционал для случая добавления новых полигонов в режиме редактирования
+            mainRect
+                .mousedown(function (i, x, y, cx, cy) {
+                    if (editMode == 1) {
+                        //console.log("даун на поле","leftCornerShiftX,Y = ",leftCornerShiftX," , ",leftCornerShiftY);
+                        x0 = x - leftCornerShiftX;
+                        y0 = y - leftCornerShiftY;
+                        path = [];
+                        path = create_path(10, 10, x, y);
+                        //pt=create_path(10,10,100,100);
+                        //polygones.push(r.path(pt).attr({stroke:"red",fill:"red",opacity:0.5}));
+                        k = polygones.length;
+                        //console.log("!! k=",k);
+						k++;
+                        ff(k, k-1); //убавил на 1 второй аргумент. 
+						assygnArrowsMode(); // если тут не поставить всю конструкцию клинит
+                    }
+                    else {
+                        notEditModeAlert();
+                        zeroPolyAlert.innerHTML = "";
+                    }
+                })
+                .drag(function (dx, dy, x, y) { // создает новый полигон
+                    if (editMode == 1) {
+                        //console.log('x0 x',x0,x);
+                        //console.log("from new drug: k=",k,"polygones length = ",polygones.length);
+                        if (rects != null) rects.remove();
+                        if (arrows != null) arrows.remove();
+                        x = x - leftCornerShiftX + 1; //+1 нужен для того, чтобы курсор был всегда над полигоном и функция mouseup срабатывала уверенно.
+                        y = y - leftCornerShiftY + 1;
+                        //console.log('x y',x,y);
+                        if (x > W - 1) x = W - 1; // не дает вылазить за границы полигона
+                        if (y > H - 1) y = H - 1;
+                        pt = create_path(dx, dy, x, y);
+                        //console.log("py =",pt,"polygones----",polygones);
+                        if (polygones.items !== undefined) {
+                            polygones.items[polygones.items.length - 1].attr({path: pt, opacity: 0.5});
+                        }
+                        else {
+                            polygones.items[0].attr({path: pt, opacity: 0.5});
+                        }
+                        assygnPolygonNumber();
+                        assygnPolygonMode();
+						assygnArrowsMode();
+                        //if (rects!= null)rects.remove();
+                    }
+                })//*/
+            //.mouseup(function(){console.log(".ommouseup снаружи ->  nums_poly = ",nums_poly);}) // бесполезно что-то делать в этой ф-ции; она не отлавливается
+            //.mousemove(function(x,y){console.log("k=!=!=",k);});
+            var delButton = document.getElementById('delButton ');
+            //delButton.onclick = function delete_all(){
+            function delete_all() {
+                //var ret = confirm('Стереть?');
+                if (editMode != 0) {
+                    //*
+                    // след 2 строки удаляют полигоны и массив полигонов. порядок строк не менять, иначе полигоны не удаляются
+                    polygones.remove();		// оставить строку, иначе остаются полигоны
+                    for (i = polygones.length - 1; i >= 0; i--) polygones.splice(i, 1);	// оставить строку, иначе остаются нулевые члены массива
+                    //console.log("polygones = ",polygones);
+                    rects.remove();
+                    rectsCover.remove();
+                    nums.remove();
+                    nums_poly.remove();
+                    modes_poly.remove();
+                    //*/
+                    //r.clear(); // с этой байдой почему-то не начинает рисовать новые рамки сразу после нажатия "удалить все".
+                    sendPolyToServerPHP(req);
+                    k = 0;//k=1;
+                }
+                else notEditModeAlert();
+            }
+            delButton.onclick = function () {
+                delete_all();
+            }; // без кавычек в такой записи нельзя: будет ошибка unexpected identifier
+            var editButton = document.getElementById('editButton ');
+            editButton.onclick = function () {
+                if (editMode == 0) { 	// если не в режиме редактирования,
+                    editMode = 1;	// то включить р.р.
+                    editButton.value = 'Сохранить';
+                    editModeAlert.innerHTML = "Режим редактирования";
+                    editModeAlert.style.color = '#0000FF'
+                }
+                else { 				// если в нем,
+                    editMode = 0;	// то выключить
+                    editButton.value = 'Редактировать';
+                    document.location.reload();	//перезагрузка страницы
+                }
+                //console.log("editButton.click, editMode=",editMode);
+            }
+            var changeButton = document.getElementById('changeButton');
+            changeButton.onclick = function () {
+                sendIpSettingsToServer();
+                //document.location.reload();
+            }
+            function pict_from_camera_reload() {
+                var pict = document.getElementById('pict');
+                //if (navigator.userAgent.indexOf ('Linux')!= -1) pict.src = '/html/cam_pic.php?' + Math.random(); // для linux
+                //else pict.src = 'http://192.168.0.32/html/cam_pic.php?' + Math.random(); // для windows
+                pict.src = '/html/cam_pic.php?' + Math.random(); // для linux
+                getStatusFromServerPHP(polygones);  // вот это очень здесь странная фикня. под большим вопросом. что это? удалять???
+            };
+
+            // старое: setInterval(pict_from_camera_reload, 40); 
+			//if (document.title!="::1") //если это не локалхост, загружать картинку
+			if (0) //если это не локалхост, загружать картинку
+				setInterval(pict_from_camera_reload, 40);
+
+            function notEditModeAlert() {
+                editModeAlert.innerHTML = "Добавление, изменение и удаление зон возможно только в режиме редактирования";
+                editModeAlert.style.color = '#FF0000'
+                //alert("Изменение и удаление зон возможно только в режиме редактирования."); // как альтернатива...
+            };
+            function winOnmouseUp() { // каждый раз при поднятии мышки данные полигонов сохраняются на сервере.
+                if (editMode == 1) {
+                    sendPolyToServerPHP(req);
+                }
+                ;
+                if (polygones !== undefined)
+                    zeroPolyAlert.innerHTML = "";
+            };
+            window.onmouseup = function () {
+                winOnmouseUp();
+            };
+            function debugInfoShow(event) { // при надажии d показывает статус связи с коммутором
+                var kep = event.which;
+                //if (event.keyCode == shift && capslock)console.log("shiftCapslock");
+                //console.info("Нажата клавиша",kep,"d - дигностика связи");
+                if (kep == 68) { // 68 - код клавиши d
+                    if (ipSettingsData.style.visibility == "hidden") ipSettingsData.style.visibility = "visible"; else ipSettingsData.style.visibility = "hidden";
+                    if (polyData.style.visibility == "hidden") polyData.style.visibility = "visible"; else polyData.style.visibility = "hidden";
+                }
+                ;
+            };
+            document.body.onkeydown = debugInfoShow;
+        }
+    </script>
+    
+	<!--?php
+	function get_ip(){
+		return shell_exec(" ");
+	};
+	function get_netmask(){
+		return shell_exec("/sbin/ifconfig  | grep 'inet '| grep -v '127.0.0.1' | cut -d: -f4 | awk '{ print $1}'");
+	};
+	function get_gateway(){
+		return shell_exec("netstat -rw |grep default|awk '{print $2}'");
+	};
+	function get_hub(){
+		$ip_conf = @json_decode(file_get_contents('/var/www/ip_conf.dat'));	
+		@$ip_hub = $ip_conf->{"hub"}; # @ подавляет ошибки
+    return $ip_hub;
+    };
+    ?-->
+</head>
+<body>
+<h1 style="text-align: center; margin-bottom: 2px; font:22px Arial, Helvetica, sans-serif;font-weight:bold;">Настройка
+    детектора</h1>
+<!--div id="zeroPolyAlert" style="float:left; top: 50px; left: 50px; position: absolute; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div-->
+<!--div id="editModeAlert" style="float:left; top: 50px; left: 50px; position: absolute; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div-->
+<div id="zeroPolyAlert"
+     style="text-align: center; top: 250px; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div>
+<div id="editModeAlert" style="text-align: center; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div>
+
+<!--form name="" method="post" type="submit" action="ip_handler.php"-->
+<form action ="" name="" method="post" >
+    <div style="float:left; top: 70px; left: 880px; position: absolute; border: 1px solid #333;border-color: rgb(150, 150, 150);">
+        <p style="text-align: center;font:14px Arial, Helvetica, sans-serif;"><font size="3"><b>Параметры</b></font></p>
+        <p class="right_panel_text">&nbsp;&nbsp;IP адрес камеры:<br>
+            <input class="right_panel_text" id="ip_address" name="ip" type="text" value= "{{ ipStatus.ip }}"
+            pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br>
+        <p class="right_panel_text">&nbsp;&nbsp;Маска подсети:<br>
+            <input class="right_panel_text" id="ip_netmask" name="mask" type="text" value= "{{ ipStatus.mask }}"
+            pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br>
+        <p class="right_panel_text">&nbsp;&nbsp;IP адрес шлюза:<br>
+            <input class="right_panel_text" id="ip_address_gateway" name="gateway" type="text" value= "{{ ipStatus.gateway }}"
+            pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br>
+        <p class="right_panel_text">&nbsp;&nbsp;IP адрес концентратора:<br>
+            <input class="right_panel_text" id="ip_address_hub" name="hub" type="text" value= "{{ ipStatus.hub }}"
+            pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br><br>
+            <input id="changeButton" name="btn1" style="visibility:visible;" type="submit" value="Изменить" class="button"/>
+    </div>
+</form>
+<form action ="" name="a2" method="post">
+    <div style="float:left; top: 410px; left: 885px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">
+        <input type="button" id="editButton " value="Редактировать" class="button"/><br>
+        <input type="button" id="delButton " value="Удалить все" class="button"/><br><p>
+        <!--input type="button" id="camSettingsButton " value="Настройки камеры" class="button"
+               onClick='location.href="/html"'/><br><br-->
+        <input name="inp1" type="text" value= "30"><br>
+        <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/>
+        <span id="polyData" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+        <span id="IP_settings_data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+        <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
+    </div>
+</form>
+<!-- слой картинки -->
+<!--div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute"-->
+<div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute">
+    <!--div class="block1"-->
+    <!--img id="pict" style="width:100%;height:100%"/-->
+	<img src="{{ url_for('video_feed') }}">
+    <!--img id ="pict" style="width:100%;height:100%"/-->
+</div>
+<!-- слой рисования -->
+<div id="holder" style="float:left; top: 70px; left: 50px; position: absolute"/>
+<br>
+<!--span id="polyData" style="visibility:visible"=>hidden</span-->
+</body>
+</html>
