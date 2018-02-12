@@ -15,14 +15,16 @@
 import cv2
 
 class Camera(object):
+    video = cv2.VideoCapture(1)
     def __init__(self):
         # Using OpenCV to capture from device 0(1). If you have trouble capturing
         # from a webcam, comment the line below out and use a video file
         # instead.
         try:
-            self.video = cv2.VideoCapture(1)
+            #self.video.set(cv2.CAP_PROP_FRAME_WIDTH, 320) # это не работает
+            #self.video.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
             self.jpeg = cv2.imread("C:\\Users\\ataranov\\Projects\\flask-video-streaming-1\\1.jpg")
-            cv2.imshow("q",self.jpeg)
+            #cv2.imshow("q",self.jpeg)
         except:
             pass
         # If you decide to use video.mp4, you must have this file in the folder
@@ -30,9 +32,10 @@ class Camera(object):
         # self.video = cv2.VideoCapture('video.mp4')
     
     def __del__(self):
-        self.video.release()
-    
+        pass #self.video.release()  переделать! чтобы работало корректно
+    # @classmethod
     def get_frame(self):
+    # def get_frame(cls):
         try:
             success, image = self.video.read()
             # image = self.jpeg
@@ -40,8 +43,11 @@ class Camera(object):
             # so we must encode it into JPEG in order to correctly display the
             # video stream.
         #try:
+            # print('get_frame') # вот это все тут не появляется и не работает... треды, или что виноваты. не понятно пока
+            # image = cv2.resize(image,(480,320))
             ret, jpeg = cv2.imencode('.jpg', image)
-            cv2.waitKey(5)
+            # cv2.imshow('qwe',image)
+            # cv2.waitKey(2)
             return jpeg.tostring()
         except:
             # jpeg = cv2.imread("C:\\Users\\ataranov\\Projects\\flask-video-streaming-1\\1.jpg")
@@ -49,3 +55,10 @@ class Camera(object):
             # cv2.imshow("q",jpeg)
             # cv2.waitKey()
             return self.jpeg.tostring()
+
+    #@classmethod
+    def get_frame_for_internal_proc(self):
+        # print ('cls.video DO',cls.video)
+        _,ret = self.video.read()
+        # print ('cls.video POSLE',cls.video)
+        return ret

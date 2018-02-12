@@ -6,11 +6,12 @@
     <!--link rel="stylesheet" href="../style.css" media="all"-->
     <script src="{{ url_for('static', filename='raphael.min.js') }}"></script>
     <script src="{{ url_for('static', filename='poly.js') }}"></script>
-    <script type=text/javascript src="{{ url_for('static', filename='jquery-latest.min.js') }}"></script>
+    <script type=text/javascript src="{{ url_for('static', filename='jquery.min.js') }}"></script>
     <script type=text/javascript>
         // изменения от 14.03 устранена невозможность редактирования после сохранения.
         // изменения от 31.10 введены типы рамок - проезд и остановка. Данные типов хранятся в polygones.dat
         window.onload = function () {
+            console.log('Стартовалла!!');
             var W = document.getElementById('img_div').style.width.slice(0, -2), /*убирает "px" в конце*/
                 H = document.getElementById('img_div').style.height.slice(0, -2),
                 r = Raphael("holder", W, H);
@@ -26,7 +27,7 @@
             var modes_poly = r.set();	// буквы, обозначающие режимы работы рамок(полигонов) 0(П) - присутствие, 1(О) - остановка
             var pt = [];  				// строка задания path полигона
             var k = 0; 					// номер полигона
-            var polyFromServer = 6;		// структура содержащая данные полигонов и режимы работы. 6 - дефолт для диагностики
+            var polyFromServer = 6;		// структура, содержащая данные полигонов и режимы работы. 6 - дефолт для диагностики
             var polygonNumber;
             var ramkiModes; 			// вспомогательный массив, использующийся в назначении режимов работы рамок.
 			var ramkiArrows;			// вспомогательный массив, исп. для хранения статуса стрелок с сервера.
@@ -36,11 +37,44 @@
             var ipSettingsData = document.getElementById('IP_settings_data'); // статус связи с коммутатором
             var polyData = document.getElementById('polyData'); //
 
+            function getPolyFromServer(req) { // загружает данные полигонов из файла при открытии страницы в браузере
+                var str = "req=" + encodeURIComponent(req);
+                $.ajax({
+                    type: "POST",
+                    url: "/getPolyFromServer",
+                    //data: $('form').serialize(),
+                    data: str,
+                    success: function(response) {
+                        polyFromServer = jQuery.parseJSON(response)
+                        //console.log('poly from GetPolygones=',response);
+                        //polyFromServer = JSON.parse(polyFromServer);
+                        console.log('polyFromServer from getPolyFromServer=',polyFromServer);
+                        //console.log('polyFromServer.indexOf(\"polygones\")=',polyFromServer.indexOf('polygones')); //3
+
+                        if (polyFromServer.indexOf('polygones') >= 0) { // если файл с данными полигонов пустой, в нем не будет строки "polygones"
+                            polyFromServer = JSON.parse(polyFromServer);
+                            //console.log("polygones got from server: ",polyFromServer);
+                            zeroPolyAlert.innerHTML = ""; // удаляем надпись о том, что данные полигонов не заданы
+                            ramkiModes = polyFromServer.ramkiModes; //промежуточная переменная нужная для работы assygnPolygonMode
+                            ramkiArrows = polyFromServer.ramkiDirections;
+                            return polyFromServer;
+                        }
+                        else {
+                            zeroPolyAlert.innerHTML = "Данные зон детектирования не заданы";
+                            return 0;
+                        }
+                                //console.log("ramkiModes",ramkiModes);
+
+                    },
+                    error: function(error) {
+                        console.log(error);
+                        return 0;
+                    }
+                });
+            };
             // при попытке вытащить ф-цию в другой файл polyFromServer становится undefined; причины - она не успевает
             // получить ответ от сервера
-            function getPolyFromServerPHP(req) { // загружает данные полигонов из файла при открытии страницы в браузере
-                //console.log("getPolyFromServer Entrance   ");
-                //var polyFromServer;
+            function getPolyFromServerPHP(req) { // загружает данные полигонов из файла при открытии страницы в браузере устарело Кандидат на удаление.
                 var xmlhttp = getXmlHttp(); // Создаём объект XMLHTTP
                 xmlhttp.open('POST', 'post_handler_getPoly.php', true); // Открываем асинхронное соединение чтоб браузер не ждал
                 xmlhttp.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded'); // Отправляем кодировку (не выключать)
@@ -56,7 +90,7 @@
                             if (polyFromServer.indexOf('polygones') >= 0) { // если файл с данными полигонов пустой, в нем не будет строки "polygones"
                                 polyFromServer = JSON.parse(polyFromServer);
                                 //console.log("polygones got from server: ",polyFromServer);
-                                zeroPolyAlert.innerHTML = ""; // удаляем надпись о том, что данные полигонов не заданы
+                                zeroPolyAlert.innerHTML = "Тут тест!!!"; // удаляем надпись о том, что данные полигонов не заданы
                                 ramkiModes = polyFromServer.ramkiModes; //промежуточная переменная нужная для работы assygnPolygonMode
 								ramkiArrows = polyFromServer.ramkiDirections;
                                 //console.log("ramkiModes",ramkiModes);
@@ -66,13 +100,9 @@
                                 zeroPolyAlert.innerHTML = "Данные зон детектирования не заданы";
                                 return 0;
                             }
-
                         }
                     }
                 };
-                //xmlhttp.onreadystatechange = anonim();
-                //console.log("polygones got from server 2: ",polyFromServer);
-
                 return (polyFromServer);
             }
             // назначает номера полигонов. при попытке переместить в файл не находит r,nums_poly,polygones
@@ -167,7 +197,7 @@
                         })
                         .mouseup(function () {
                             req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // req - строка состояния, которая отображает все статусы полигонов
-                            sendPolyToServerPHP(req);
+                            sendPolyToServer(req);
                             internFlag = 0; //эта затычка нужна потому, что .mousedown вызывается несколько раз при однократном нажатии(хз почему)
                         })
                         .mouseover(function () {
@@ -197,6 +227,7 @@
             var leftCornerShiftX = document.getElementById('img_div').style.left.slice(0, -2);
             var leftCornerShiftY = document.getElementById('img_div').style.top.slice(0, -2);
             //polyFromServer = getPolyFromServerPHP(req); // забирает данные полигонов с сервера
+            polyFromServer = getPolyFromServer(req); // забирает данные полигонов с сервера
 			function putNullsToRamkiArrows(){
 				if (ramkiArrows==undefined){ //если с сервера ничего не считалось( ну мало-ли что) создаем массив набитый нулями
 					ramkiArrows=[];
@@ -312,7 +343,7 @@
 									//console.log("supp!");
 									assygnArrowsMode();
 									req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
-									sendPolyToServerPHP(req);
+									sendPolyToServer(req);
 								//};
 								//setTimeout(supp,3000);	
 							}
@@ -374,6 +405,7 @@
                                 for (ii = arrows.length - 1; ii >= 0; ii--) arrows.pop(); //удалем старые стрелки направлений перед созд. новых
                                 for (ii = 0; ii < 4; ii++) { 
                                     var internalFlag=0;
+                                    // создать квадратики по углам полигона
                                     var rec = rects.push(r.rect(path_[ii][1] - 10, path_[ii][2] - 10, 20, 20).attr({stroke: "red",fill: "yellow",opacity: 0.5}))
                                         .drag(function (dx, dy, x, y) { // таскать за квадратики по углам
                                             //internalFlag=1;
@@ -428,7 +460,7 @@
 								assygnArrowsMode();
 								//console.log("setArrows=",setArrows);
 								req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
-                                sendPolyToServerPHP(req);
+                                sendPolyToServer(req);
                             }
                             else
                                 notEditModeAlert();
@@ -448,7 +480,7 @@
                                 // это работает ограниченно: после перезагрузки не устанавливается назад режим редактирования и и текст кнопки сохранить.
                                    setTimeout в этом случае не выход, см ниже , т.к. в него управление тупо не заходит, оно теряется после перезагрузки.
                                    req=convertPolyToString(polygones,W,H,modes_poly,ramkiArrows);
-                                   sendPolyToServerPHP(req);
+                                   sendPolyToServer(req);
                                 // перезагрузить страницу
                                    document.location.reload();	//перезагрузка страницы
                                    setTimeout(function(){
@@ -481,7 +513,7 @@
 								setArrows.splice(pnumber,1);
 								assygnArrowsMode();
                                 req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // ************************************** //
-								sendPolyToServerPHP(req);
+								sendPolyToServer(req);
                                 winOnmouseUp(); // при даблклике не происходит события поднятия мыши над окном. не знаю почему, поэтому вызываем функцию, которую выполняет это событие, когда оно происходит.
                                 //console.log("k после win mouse Up",k);
                                 //*/
@@ -516,7 +548,9 @@
 
             // функция рисует полигоны
             function circleff() {
-                if (polyFromServer.polygones !== undefined) {
+                //console.log('polyFromServer = ',polyFromServer)
+                //console.log('polygones = ',polyFromServer.polygones)
+                if (polyFromServer !== undefined) {
                     for (i = 0; i < polyFromServer.polygones.length; i++) {
                         //console.log("k==",k,i)
                         k = i + 1;
@@ -530,10 +564,11 @@
                 }
                 else {
                     //alert("данные зон детектирования не заданы");
+                    console.log("The data didn't send. Try to increase timeout..")
                     path = [];
                 }
             }
-            var serverAnswerDelTime = 50;
+            var serverAnswerDelTime = 500;
             setTimeout(circleff, serverAnswerDelTime);
             setTimeout(assygnPolygonNumber, serverAnswerDelTime + 10);
             setTimeout(assygnPolygonMode, serverAnswerDelTime + 15);
@@ -606,7 +641,7 @@
                     modes_poly.remove();
                     //*/
                     //r.clear(); // с этой байдой почему-то не начинает рисовать новые рамки сразу после нажатия "удалить все".
-                    sendPolyToServerPHP(req);
+                    sendPolyToServer(req);
                     k = 0;//k=1;
                 }
                 else notEditModeAlert();
@@ -614,6 +649,7 @@
             delButton.onclick = function () {
                 delete_all();
             }; // без кавычек в такой записи нельзя: будет ошибка unexpected identifier
+            //*
             var editButton = document.getElementById('editButton ');
             editButton.onclick = function () {
                 if (editMode == 0) { 	// если не в режиме редактирования,
@@ -625,27 +661,19 @@
                 else { 				// если в нем,
                     editMode = 0;	// то выключить
                     editButton.value = 'Редактировать';
-                    document.location.reload();	//перезагрузка страницы
+                    editModeAlert.innerHTML = "";
+                    if (rects != null) rects.remove();  // удалить вс квадратики по углам полингонов если не в режиме радактирования
+                    sendPolyToServer(req);
+                    //document.location.reload();	//перезагрузка страницы
                 }
                 //console.log("editButton.click, editMode=",editMode);
-            }
-            var changeButton = document.getElementById('changeButton');
-            changeButton.onclick = function () {
-                sendIpSettingsToServer();
-                //document.location.reload();
-            }
-            function pict_from_camera_reload() {
-                var pict = document.getElementById('pict');
-                //if (navigator.userAgent.indexOf ('Linux')!= -1) pict.src = '/html/cam_pic.php?' + Math.random(); // для linux
-                //else pict.src = 'http://192.168.0.32/html/cam_pic.php?' + Math.random(); // для windows
-                pict.src = '/html/cam_pic.php?' + Math.random(); // для linux
-                getStatusFromServerPHP(polygones);  // вот это очень здесь странная фикня. под большим вопросом. что это? удалять???
             };
 
-            // старое: setInterval(pict_from_camera_reload, 40); 
-			//if (document.title!="::1") //если это не локалхост, загружать картинку
-			if (0) //если это не локалхост, загружать картинку
-				setInterval(pict_from_camera_reload, 40);
+            // статусы полигонов считывать с сервера и обновлять на странице.
+            function circleStatusRequest(){
+                getStatusFromServer(polygones)
+            };
+            setInterval(circleStatusRequest, 40);
 
             function notEditModeAlert() {
                 editModeAlert.innerHTML = "Добавление, изменение и удаление зон возможно только в режиме редактирования";
@@ -654,11 +682,13 @@
             };
             function winOnmouseUp() { // каждый раз при поднятии мышки данные полигонов сохраняются на сервере.
                 if (editMode == 1) {
-                    sendPolyToServerPHP(req);
+                    sendPolyToServer(req);
                 }
                 ;
                 if (polygones !== undefined)
                     zeroPolyAlert.innerHTML = "";
+                if (polygones.length <=0)
+                    zeroPolyAlert.innerHTML = "Данные зон детектирования не заданы";
             };
             window.onmouseup = function () {
                 winOnmouseUp();
@@ -676,27 +706,10 @@
             document.body.onkeydown = debugInfoShow;
         }
     </script>
-    
-	<!--?php
-	function get_ip(){
-		return shell_exec(" ");
-	};
-	function get_netmask(){
-		return shell_exec("/sbin/ifconfig  | grep 'inet '| grep -v '127.0.0.1' | cut -d: -f4 | awk '{ print $1}'");
-	};
-	function get_gateway(){
-		return shell_exec("netstat -rw |grep default|awk '{print $2}'");
-	};
-	function get_hub(){
-		$ip_conf = @json_decode(file_get_contents('/var/www/ip_conf.dat'));	
-		@$ip_hub = $ip_conf->{"hub"}; # @ подавляет ошибки
-    return $ip_hub;
-    };
-    ?-->
+
 </head>
 <body>
-<h1 style="text-align: center; margin-bottom: 2px; font:22px Arial, Helvetica, sans-serif;font-weight:bold;">Настройка
-    детектора</h1>
+<h1 style="text-align: center; margin-bottom: 2px; font:22px Arial, Helvetica, sans-serif;font-weight:bold;">Настройка детектора</h1>
 <!--div id="zeroPolyAlert" style="float:left; top: 50px; left: 50px; position: absolute; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div-->
 <!--div id="editModeAlert" style="float:left; top: 50px; left: 50px; position: absolute; font:12px Arial, Helvetica, sans-serif;font-weight:bold;"></div-->
 <div id="zeroPolyAlert"
@@ -719,28 +732,27 @@
         <p class="right_panel_text">&nbsp;&nbsp;IP адрес концентратора:<br>
             <input class="right_panel_text" id="ip_address_hub" name="hub" type="text" value= "{{ ipStatus.hub }}"
             pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br><br>
-            <input id="changeButton" name="btn1" style="visibility:visible;" type="submit" value="Изменить" class="button"/>
+            <input id="changeButton" name="btn1" style="visibility:visible;" type="button" value="Изменить" class ="button" onclick="sendIpSettingsToServer();"/>
     </div>
 </form>
-<form action ="" name="a2" method="post">
-    <div style="float:left; top: 410px; left: 885px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">
-        <input type="button" id="editButton " value="Редактировать" class="button"/><br>
-        <input type="button" id="delButton " value="Удалить все" class="button"/><br><p>
-        <!--input type="button" id="camSettingsButton " value="Настройки камеры" class="button"
-               onClick='location.href="/html"'/><br><br-->
-        <input name="inp1" type="text" value= "30"><br>
-        <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/>
-        <span id="polyData" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
-        <span id="IP_settings_data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
-        <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
-    </div>
-</form>
+<div style="float:left; top: 410px; left: 885px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">
+    <input type="button" id="editButton " value="Редактировать" class="button"/><br>
+    <input type="button" id="delButton " value="Удалить все" class="button"/><br><p>
+    <!--input type="button" id="camSettingsButton " value="Настройки камеры" class="button"
+           onClick='location.href="/html"'/><br><br-->
+    <!--input name="inp1" type="text" value= "30"><br>
+    <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/-->
+    <span id="polyData" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+    <span id="IP_settings_data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+    <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
+</div>
+
 <!-- слой картинки -->
 <!--div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute"-->
 <div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute">
     <!--div class="block1"-->
     <!--img id="pict" style="width:100%;height:100%"/-->
-	<img src="{{ url_for('video_feed') }}">
+	<img src="{{ url_for('video_feed') }}" style="width:100%;height:100%">
     <!--img id ="pict" style="width:100%;height:100%"/-->
 </div>
 <!-- слой рисования -->
