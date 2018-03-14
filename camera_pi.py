@@ -15,6 +15,9 @@ class Camera(object):
     frameCV2 = None # same, but as a numpy array
     last_access = 0  # time of last client access to the camera
 
+    def __init__(cls):
+        pass#cls.video = cv2.VideoCapture("http://188.187.119.130:8080/hls/6176/5a2d33233089738ea8ff/playlist.m3u8?tcp")
+
     def initialize(self):
         if Camera.thread is None:
             # start background frame thread
@@ -23,7 +26,7 @@ class Camera(object):
 
             # wait until frames start to be available
             while self.frameCV2 is None:
-                print('Hold!')
+                #print('frameCV2',self.frameCV2)
                 time.sleep(0)
 
     def get_frame(self):
@@ -51,9 +54,10 @@ class Camera(object):
             for foo in camera.capture_continuous(rawCapture, format='bgr', use_video_port=True):
                 cls.frameCV2 = foo.array
                 rawCapture.truncate(0)
-                if time.time() - cls.last_access > 10:
+                if time.time() - cls.last_access > 30:
                     print('!BREAK!!')
                     break
+
         cls.thread = None
 
 ''' это было в примере

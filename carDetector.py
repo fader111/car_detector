@@ -21,7 +21,7 @@
 '''
 import cv2
 import numpy as np
-import os,sys,time,json
+import os,sys,time,json,math
 import requests
 from multiprocessing import cpu_count
 import threading
@@ -62,9 +62,12 @@ colorStatus = [] # цвета рамок
 height = 300 # px размер окна в котором происходит проверка не менять!!! чревато !!!
 width = 400 # px ##
 origWidth, origHeight = 800, 600 # размер окна браузера для пересчета
-frameOverlapTres = 20 # frame overlap, %
-frameOverlapHyst = 10 # frame hysteresis, %
+#detection_settings["frame_tresh"] = 20 # frame overlap, %
+#detection_settings["frame_hyst"] = 10 # frame hysteresis, %
 learningRate = 0.0001 #0.00001 0.001 - это 13 секунд 0.0001 - 113 секунд !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#detection_settings["move_tresh"] = 60 # порог, после корого считаем что в рамке есть движуха. в перспективе видимо это надо грузить это из конфига либо из настроечной web страницы
+#detection_move_hyst = 58  # гистерезис срабатывания по движухе
+detection_settings = {"frame_tresh":20,"frame_hyst":10,"move_tresh":60,"move_hyst":58} # настройки детектора перенесены в словарь
 adaptLearningRateInit = 0.005 #0.005 это параметр на старте для времени обучения фона
 adaptLearningRate =0 # при старте ему присваивается Init время и во время работы убавляется.
 #fixLearningRate = 0.005 # параметр для рамок присутствия? пока не буду его. вместо него возьму adaptLearningRateInit
@@ -126,25 +129,32 @@ class RepeatedTimer(object):
 # поделена линиями, соединяющими середины противоположных сторон.
 class detector():
     def __init__(self, pict, frame, i):
+        self.frame = frame
         self.pict=pict
         self.borders = rectOverPolygon(frame)
-        print ('self.borders =', self.borders)  ####################################################################
-        self.mask = np.zeros((self.pict.shape[0], self.pict.shape[1]),
-                             dtype=np.uint8)  # черная маска по размерам входной картинки
+        ##print ('self.borders =', self.borders)  ####################################################################
+        self.mask = np.zeros((self.pict.shape[0], self.pict.shape[1]),dtype=np.uint8)  # черная маска по размерам входной картинки
         adaptLearningRate = adaptLearningRateInit
-        # self.bg = cv2.BackgroundSubtractorMOG2(500, 5, 0)  # аргументы (history, treshold, shadow) history не активно если юзаем learninRate
         # self.bg = cv2.BackgroundSubtractorMOG2(500, 5, 0)  # аргументы (history, treshold, shadow) history не активно если юзаем learninRate
         self.bg = cv2.createBackgroundSubtractorMOG2(500, 5, 0)  # аргументы (history, treshold, shadow) history не активно если юзаем learninRate
         #### Преобразование рамки в кооринаты обрезанного под нее окна
-        print (i, 'frame =', frame)
+        #print (i, 'frame =', frame)
         self.roi_corners = np.array([frame], dtype=np.int32)  # вершины рамки
         cv2.fillConvexPoly(self.mask, self.roi_corners, (255, 255, 255))  # из черной маски делаем черную с белой рамкой
         self.framedPict = cv2.bitwise_and(self.pict, self.mask)
         self.smallPict = self.framedPict[int(self.borders[1]):int(self.borders[3]), int(self.borders[0]):int(self.borders[2])]
+        self.prev_smallPict = self.smallPict[:,:] # нужна для детектора движения
         self.fgmask = self.bg.apply(self.smallPict, learningRate=adaptLearningRate)
         self.absMass = np.zeros((self.smallPict.shape[0], self.smallPict.shape[1]), np.uint8)  # матрица с нулями
-        self.frameColor = 0  # (0, 0, 0)
-        self.tss = 0
+        self.frameTrigger = 0  # (0, 0, 0) Это состояние сработки от изменения по алгоритму сравнения с фоном без учета направления
+        self.frameMoveTrigger = [0,0,0,0] # это состояние сработки от детектирования движения в определенном направлении
+        self.frameMoveTriggerCommon =0 # это состояние сработки от детектирования движения общее для рамки, оно =1, если есть сработка хотя-бы по одному направлению
+        self.frameMoveValCalculated = [0,0,0,0] # направление движения, зафиксированное детектором в рамке - аналоговая вел-на. берется из алгоритма, вычисляющего движение.
+        self.cos_alfa_calculator()
+        #print ('self.cos_alfax , self.cos_alfay = ',self.cos_alfax,self.cos_alfay)
+        self.tss = 0 # тайм стамп, участвующий в обновлении фона
+        self.tsRamkiUpd = 0 # тайм стамп, нужный для задержки в обновлении состояния рамки
+        self.noRamkiDirectionsFlag = 0 # признак того, что в рамке не заданы направления, тогда она срабатывает по всем направлениям
 
     def getFgmask(self,pict,frame, adaptLearningRate):
         self.pict = pict
@@ -161,17 +171,90 @@ class detector():
             self.tss = time.time()
         #print ('tss', self.tss, time.time())
         #print ('dif',time.time()-self.tss)
-        #cv2.imshow(str(self), self.fgmask)
         cv2.convertScaleAbs(self.fgmask, self.absMass)
         self.nonZeros = cv2.countNonZero(self.absMass)
         #print('self.frameArea',self.frameArea, self.nonZeros)
-        #print (self.nonZeros%frameArea* frameOverlapTres)
-        if (self.nonZeros/float(self.frameArea) * 100 > frameOverlapTres):
-            self.frameColor = (255, 255, 0)
-        elif (self.nonZeros/float(self.frameArea) * 100 < frameOverlapTres - frameOverlapHyst): # гистерезис в 10% чтобы рамка не дергалась
-            self.frameColor = 0#(0, 0, 0)
+        #print (self.nonZeros%frameArea* detection_settings["frame_tresh"])
+        if (self.nonZeros/float(self.frameArea) * 100 > detection_settings["frame_tresh"]):
+            self.frameTrigger = 1#(255, 255, 0)
+        elif (self.nonZeros/float(self.frameArea) * 100 < detection_settings["frame_tresh"] - detection_settings["frame_hyst"]): # гистерезис в 10% чтобы рамка не дергалась
+            self.frameTrigger = 0#(0, 0, 0)
         elif (self.nonZeros / float(self.frameArea) * 100 <= 0):  # на случай если порог установлен меньше гистерезиса
-            self.frameColor = 0#(0, 0, 0)
+            self.frameTrigger = 0#(0, 0, 0)
+
+    def cos_alfa_calculator(self):  # метод вычисляет угол(косинус угла) наклона медианы - возвращает кортеж - 2 значения - по х и по у
+        # return self.frame
+        x0 = self.frame[0][0]
+        y0 = self.frame[0][1]
+        x1 = self.frame[1][0]
+        y1 = self.frame[1][1]
+        x2 = self.frame[2][0]
+        y2 = self.frame[2][1]
+        x3 = self.frame[3][0]
+        y3 = self.frame[3][1]
+
+        x01 = int((x0 + x1) / 2)  # x0+(x1-x0)/2
+        y01 = int((y0 + y1) / 2)
+        x12 = int((x1 + x2) / 2)
+        y12 = int((y1 + y2) / 2)
+        x23 = int((x2 + x3) / 2)
+        y23 = int((y2 + y3) / 2)
+        x30 = int((x3 + x0) / 2)
+        y30 = int((y3 + y0) / 2)
+        if showMode:   # не рисуется, т.к. надо вызывать всегда во время работы, а не только в init
+            cv2.line(self.pict, (x30, y30), (x12, y12), 255, 2, 1)  # это x-медиана рамки белая
+            cv2.line(self.pict, (x01, y01), (x23, y23), 127, 2, 1)  # это y-медиана рамки серая
+        # длина медианы
+        medianax = math.sqrt((y12 - y30)*(y12 - y30) + (x12 - x30)*(x12 - x30))
+        medianay = math.sqrt((x01 - x23)*(x01 - x23) + (y23 - y01)*(y23 - y01))
+        # print('medianax= ',medianax)
+        # print('medianay= ',medianay)
+        '''
+        if (y23 - y01)!=0 :
+            alfay = math.atan((x01 - x23)/(y23 - y01))
+        else:
+            alfay = 90/180*math.pi
+        if (x30-x12)!=0 :
+            alfax = math.atan((y30 - y12) / (x30 - x12))
+        else:
+            alfax = 0
+        '''
+        # print('x01 , x23 ', x01 , x23)
+        # print('y01 , y23 ', y01 , y23)
+        # print('x12 , x30 ', x12 , x30)
+        # print('y12 , y30 ', y12 , y30)
+        self.cos_alfax = (x12-x30) / medianax
+        self.sin_alfax = (y12-y30) / medianax
+        self.cos_alfay = (y23-y01) / medianay
+        self.sin_alfay = (x01-x23) / medianay
+        # print('self.cos_alfax ', self.cos_alfax)
+        # print('self.sin_alfax ', self.sin_alfax)
+        # print('self.cos_alfay ', self.cos_alfay)
+        # print('self.sin_alfay ', self.sin_alfay)
+        #return (math.cos(alfax),math.cos(alfay))
+        return (0,0)
+
+    def directionCalc(self): # метод возвращает движ по каждому из направлений в ROI в виде 0 если нет движа и 1 если есть
+        flow = cv2.calcOpticalFlowFarneback(self.smallPict, self.prev_smallPict, None, 0.5, 1, 15, 1, 2, 1.2, 0)#cv2.OPTFLOW_FARNEBACK_GAUSSIAN) # вернет массив точек в каждой будет смещение, а в 3-й координате будет по x и y соответственно
+        flowx = flow[:,:,0]             #  flow=None, pyr_scale=0.5, levels=3, winsize=15, iterations=3, poly_n=5, poly_sigma=1.1, flags=0
+        flowy = flow[:,:,1]
+        self.prev_smallPict = self.smallPict # уточнить зачем это тут!!!!!!!!
+        # далее технология следующая: умножаем полученное движение по осям на cos угла
+        # между направлением и x-медианой для направлений по X координате и направллением и y-медианой для направлений по y-медиане.
+        # x-медиана рамки - отрезок соединяющий середины правой и левой сторон рамки. Y - медиана соединяет середины верхней и нижней сторон.
+        # self.frameMoveValCalculated = [flowx.mean(),0,0,0] # времненная затычка
+        self.frameMoveValCalculated[0] =   int((flowy.mean() * self.cos_alfay - flowx.mean() * self.sin_alfay) * 100)
+        self.frameMoveValCalculated[1] = - int((flowx.mean() * self.cos_alfax + flowy.mean() * self.sin_alfax) * 100)
+        self.frameMoveValCalculated[2] = - self.frameMoveValCalculated[0]
+        self.frameMoveValCalculated[3] = - self.frameMoveValCalculated[1]
+
+        if showMode:
+            self.indicator = np.zeros((100,100),dtype=np.uint8) # это временная картинка чтобы отображать на ней циферки, бо они мешают считать движуху на основной
+            cv2.putText(self.indicator, str(abs(round(flowx.mean(), 1))), (5, 10), cv2.FONT_HERSHEY_PLAIN, 0.8, 255, 2)
+            cv2.putText(self.indicator, str(abs(round(flowy.mean(), 1))), (5, 20), cv2.FONT_HERSHEY_PLAIN, 0.8, 255, 2)
+            cv2.putText(self.indicator, str(self.frameMoveValCalculated[0]), (50, 10), cv2.FONT_HERSHEY_PLAIN, 0.8, 255, 2)
+            cv2.putText(self.indicator, str(self.frameMoveValCalculated[1]), (50, 20), cv2.FONT_HERSHEY_PLAIN, 0.8, 255, 2)
+            cv2.waitKey(1)
 
 def updTsNumsMinute(tsNumberMinuteFilePath): #обновляет по тикеру tsNumbers и tsNumbersPrev
     #print ('updTSMinute!!!!!!!!!!!!!!!!!!')
@@ -226,12 +309,6 @@ def writeFile(filePath,status):
         #print status,str(status)
     return 1
 
-def writeFileColorStatus(filePath):
-    with open(filePath,'w') as f:
-        string = f.write(str(colorStatus))
-        #print (colorStatus,str(colorStatus))
-    return 1
-
 def polygonAreaCalc(polygon):
     polygonArea = 0  # площадь полигона
     polyLen = len(polygon)
@@ -264,21 +341,20 @@ def readPolyFile(polygonesFilePath): # считывание файла с пол
     #time.sleep(0.1)
     #global origWidth, origHeight,ramki,ramkiModes,ramkiDirections,linPolygonesFilePath
     global origWidth, origHeight, testMode
-
     try:
         with open(polygonesFilePath, 'r') as f:
             jsRamki = json.load(f)
             ramki = jsRamki.get("polygones", testRamki)
             origWidth, origHeight = jsRamki.get("frame", (800, 600))  # получаем размер картинки из web интрефейса
-            ramkiModes = jsRamki.get("ramkiModes", [0,0,0,0]) # по дефолту все рамки - в режиме присутствие
-            ramkiDirections = jsRamki.get("ramkiDirections", [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]) # дефолт - нет направлений.
+            ramkiModes = jsRamki.get("ramkiModes", [0 for i in range(len(ramki))]) # по дефолту все рамки - в режиме присутствие
+            ramkiDirections = jsRamki.get("ramkiDirections", [[0,0,0,0] for i in range(len(ramki))]) # дефолт - нет направлений. дефолт переделать, т.к. может быть не 4 - надо сделать генератор
             testMode = 0
             
     except Exception as Error: # если рамки не считались, и подставились тестовые, работает криво - рамки каждый раз масштабируются, как это поправить, пока не знаю.
         print (u'считать рамки не удалось, пришлось подставить тестовые..', Error)
-        ramki = testRamki
-        ramkiModes = [0,0,0,0]
-        ramkiDirections = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]
+        ramki = testRamki # это уже вроде выше присвоилось... удалять не надо, иначе вызывает ошибки типа ramki не определены при попадании в exception
+        ramkiModes = [0 for i in range(len(ramki))]
+        ramkiDirections = [[0,0,0,0] for i in range(len(ramki))]
         testMode = 1
 
     # масштабируем рамки

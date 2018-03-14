@@ -15,6 +15,7 @@
 import cv2
 
 class Camera(object):
+    #video = cv2.VideoCapture("http://188.187.119.130:8080/hls/6176/5a2d33233089738ea8ff/playlist.m3u8?tcp")
     video = cv2.VideoCapture(1)
     def __init__(self):
         # Using OpenCV to capture from device 0(1). If you have trouble capturing
@@ -38,7 +39,6 @@ class Camera(object):
     # def get_frame(cls):
         try:
             success, image = self.video.read()
-            # image = self.jpeg
             # We are using Motion JPEG, but OpenCV defaults to capture raw images,
             # so we must encode it into JPEG in order to correctly display the
             # video stream.

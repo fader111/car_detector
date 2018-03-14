@@ -3,11 +3,13 @@
     <meta charset="utf-8"/>
     <title>Детектор транспорта</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" media="screen">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style_modal.css') }}" media="screen">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <!--link rel="stylesheet" href="../style.css" media="all"-->
     <script src="{{ url_for('static', filename='raphael.min.js') }}"></script>
     <script src="{{ url_for('static', filename='poly.js') }}"></script>
     <script type=text/javascript src="{{ url_for('static', filename='jquery.min.js') }}"></script>
-    <script type=text/javascript>
+	<script type=text/javascript>
         // изменения от 14.03 устранена невозможность редактирования после сохранения.
         // изменения от 31.10 введены типы рамок - проезд и остановка. Данные типов хранятся в polygones.dat
         window.onload = function () {
@@ -34,7 +36,7 @@
             var editMode = 0;
             var zeroPolyAlert = document.getElementById('zeroPolyAlert'); // надпись о том что с сервера нет полигонов.
             var editModeAlert = document.getElementById('editModeAlert'); // индикатор режима Редактирования
-            var ipSettingsData = document.getElementById('IP_settings_data'); // статус связи с коммутатором
+            var hubData = document.getElementById('hub_Data'); // статус связи с коммутатором
             var polyData = document.getElementById('polyData'); //
 
             function getPolyFromServer(req) { // загружает данные полигонов из файла при открытии страницы в браузере
@@ -72,39 +74,7 @@
                     }
                 });
             };
-            // при попытке вытащить ф-цию в другой файл polyFromServer становится undefined; причины - она не успевает
-            // получить ответ от сервера
-            function getPolyFromServerPHP(req) { // загружает данные полигонов из файла при открытии страницы в браузере устарело Кандидат на удаление.
-                var xmlhttp = getXmlHttp(); // Создаём объект XMLHTTP
-                xmlhttp.open('POST', 'post_handler_getPoly.php', true); // Открываем асинхронное соединение чтоб браузер не ждал
-                xmlhttp.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded'); // Отправляем кодировку (не выключать)
-                //console.log("req = ",req);
-                xmlhttp.send("req=" + encodeURIComponent(req)); // Отправляем POST-запрос
-                xmlhttp.onreadystatechange = function () { // Ждём ответа от сервера
-                    if (xmlhttp.readyState == 4) { // Ответ пришёл
-                        if (xmlhttp.status == 200) { // Сервер вернул код 200 (что хорошо)
-                            //console.log("Server says 200!!",encodeURIComponent(req));
-                            //console.log('polyFromServer = ',polyFromServer);
-                            polyFromServer = xmlhttp.responseText; // Выводим ответ сервера
-                            //console.log("text response got from server: ",polyFromServer,"polyFromServer.indexOf('polygones')",polyFromServer.indexOf('polygones'));
-                            if (polyFromServer.indexOf('polygones') >= 0) { // если файл с данными полигонов пустой, в нем не будет строки "polygones"
-                                polyFromServer = JSON.parse(polyFromServer);
-                                //console.log("polygones got from server: ",polyFromServer);
-                                zeroPolyAlert.innerHTML = "Тут тест!!!"; // удаляем надпись о том, что данные полигонов не заданы
-                                ramkiModes = polyFromServer.ramkiModes; //промежуточная переменная нужная для работы assygnPolygonMode
-								ramkiArrows = polyFromServer.ramkiDirections;
-                                //console.log("ramkiModes",ramkiModes);
-                                return (polyFromServer);
-                            }
-                            else {
-                                zeroPolyAlert.innerHTML = "Данные зон детектирования не заданы";
-                                return 0;
-                            }
-                        }
-                    }
-                };
-                return (polyFromServer);
-            }
+
             // назначает номера полигонов. при попытке переместить в файл не находит r,nums_poly,polygones
             function assygnPolygonNumber() {
                 nums_poly.remove(); // при каждом вызове сначала удаляем все полигоны
@@ -568,7 +538,7 @@
                     path = [];
                 }
             }
-            var serverAnswerDelTime = 500;
+            var serverAnswerDelTime = 800;
             setTimeout(circleff, serverAnswerDelTime);
             setTimeout(assygnPolygonNumber, serverAnswerDelTime + 10);
             setTimeout(assygnPolygonMode, serverAnswerDelTime + 15);
@@ -671,7 +641,8 @@
 
             // статусы полигонов считывать с сервера и обновлять на странице.
             function circleStatusRequest(){
-                getStatusFromServer(polygones)
+                getStatusFromServer(polygones);
+                getStatusHubFromServer()
             };
             setInterval(circleStatusRequest, 40);
 
@@ -698,7 +669,7 @@
                 //if (event.keyCode == shift && capslock)console.log("shiftCapslock");
                 //console.info("Нажата клавиша",kep,"d - дигностика связи");
                 if (kep == 68) { // 68 - код клавиши d
-                    if (ipSettingsData.style.visibility == "hidden") ipSettingsData.style.visibility = "visible"; else ipSettingsData.style.visibility = "hidden";
+                    if (hubData.style.visibility == "hidden") hubData.style.visibility = "visible"; else hubData.style.visibility = "hidden";
                     if (polyData.style.visibility == "hidden") polyData.style.visibility = "visible"; else polyData.style.visibility = "hidden";
                 }
                 ;
@@ -732,18 +703,18 @@
         <p class="right_panel_text">&nbsp;&nbsp;IP адрес концентратора:<br>
             <input class="right_panel_text" id="ip_address_hub" name="hub" type="text" value= "{{ ipStatus.hub }}"
             pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"><br><br>
-            <input id="changeButton" name="btn1" style="visibility:visible;" type="button" value="Изменить" class ="button" onclick="sendIpSettingsToServer();"/>
+            <input id="changeButton" name="btn1" style="visibility:visible;" type="button" value="Изменить" class ="button" onclick="sendSettingsToServer();"/>
     </div>
 </form>
 <div style="float:left; top: 410px; left: 885px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">
     <input type="button" id="editButton " value="Редактировать" class="button"/><br>
-    <input type="button" id="delButton " value="Удалить все" class="button"/><br><p>
-    <!--input type="button" id="camSettingsButton " value="Настройки камеры" class="button"
-           onClick='location.href="/html"'/><br><br-->
+    <input type="button" id="delButton " value="Удалить все" class="button"/><br>
+    <input type="button" name="camSettingsButton" id="camSettingsButton" value="Настройки детектора" class="button"/><br>
+    <input type="button" name="helpButton" id="helpButton" value="Справка" class="button"/><br><br>
     <!--input name="inp1" type="text" value= "30"><br>
     <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/-->
     <span id="polyData" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
-    <span id="IP_settings_data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+    <span id="hub_Data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hubData</span><br><br>
     <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
 </div>
 
@@ -758,6 +729,96 @@
 <!-- слой рисования -->
 <div id="holder" style="float:left; top: 70px; left: 50px; position: absolute"/>
 <br>
-<!--span id="polyData" style="visibility:visible"=>hidden</span-->
+
+<!--модальные окна с настройками и справкой-->
+<!-- modal -->
+<div id="settings_modal" class="modal-overlay">
+  <div id="settings_modal1" class="modal">
+    <a class="close-modal">
+      <svg viewBox="0 0 20 20">
+        <path fill="#000000" d="M15.898,4.045c-0.271-0.272-0.713-0.272-0.986,0l-4.71,4.711L5.493,4.045c-0.272-0.272-0.714-0.272-0.986,0s-0.272,0.714,0,0.986l4.709,4.711l-4.71,4.711c-0.272,0.271-0.272,0.713,0,0.986c0.136,0.136,0.314,0.203,0.492,0.203c0.179,0,0.357-0.067,0.493-0.203l4.711-4.711l4.71,4.711c0.137,0.136,0.314,0.203,0.494,0.203c0.178,0,0.355-0.067,0.492-0.203c0.273-0.273,0.273-0.715,0-0.986l-4.711-4.711l4.711-4.711C16.172,4.759,16.172,4.317,15.898,4.045z"></path>
+      </svg>
+    </a><!-- close modal -->
+    <div class="modal-content">
+      <h1 style="text-align:center;font:16px Arial, Helvetica, sans-serif;font-weight: bold">Параметры детектирования</h1>
+		<div>
+            <form method="post" id="settinsForm"></form>
+			<table align="center" style="text-align: left; font:14px Arial, Helvetica, sans-serif;" border="1" cellpadding="1" cellspacing="1" style="width:800px">
+				<tbody>
+					<tr>
+						<td style="text-align: left;">Порог срабатывания детектора фона, по умолчанию 20</td>
+                        <!--required pattern='#^[0-9]+$#'-->
+						<td><input  class="modal_input_text" type="text" name="detection_frame_tresh" form="settinsForm" value= {{ detection_settings.frame_tresh }}></td>
+					</tr>
+					<tr>
+						<td>Гистерезис срабатывания детектора фона, по умолчанию 10</td>
+						<td><input class="modal_input_text" type="text" name="detection_frame_hyst" form="settinsForm" value= {{ detection_settings.frame_hyst }}></td></td>
+					</tr>
+					<tr>
+						<td>Порог срабатывания детектора движения, по умолчанию 30</td>
+						<td><input class="modal_input_text" type="text" name="detection_move_tresh" form="settinsForm" value= {{ detection_settings.move_tresh }}></td></td>
+					</tr>
+					<tr>
+						<td>Гистерезис срабатывания детектора движения, по умолчанию 25</td>
+						<td><input class="modal_input_text" type="text" name="detection_move_hyst" form="settinsForm" value= {{ detection_settings.move_hyst }}></td></td>
+					</tr>
+				</tbody>
+			</table>
+            <!--button type="submit" align="right" name="Изменить" value="update" form="settinsForm" value="Отправить запрос" onclick="sendSettingsToServer();"></button-->
+            <!--input style="float:left; top: 70px; left: 100px; position: absolute;" type="submit" name="Изменить" align="right" form="settinsForm" value="Сохранить" class= "button" onclick="sendSettingsToServer();"/-->
+            <input style="left: 225; position: absolute;" type="button" name="Изменить" form="settinsForm" value="Сохранить" class= "button" onclick="sendSettingsToServer();"/>
+		  </div>
+    </div><!-- content -->
+  </div><!-- modal -->
+</div><!-- overlay -->
+<div id="help_modal" class="modal-overlay">
+  <div id="help_modal1" class="modal">
+    <a class="close-modal">
+      <svg viewBox="0 0 20 20">
+        <path fill="#000000" d="M15.898,4.045c-0.271-0.272-0.713-0.272-0.986,0l-4.71,4.711L5.493,4.045c-0.272-0.272-0.714-0.272-0.986,0s-0.272,0.714,0,0.986l4.709,4.711l-4.71,4.711c-0.272,0.271-0.272,0.713,0,0.986c0.136,0.136,0.314,0.203,0.492,0.203c0.179,0,0.357-0.067,0.493-0.203l4.711-4.711l4.71,4.711c0.137,0.136,0.314,0.203,0.494,0.203c0.178,0,0.355-0.067,0.492-0.203c0.273-0.273,0.273-0.715,0-0.986l-4.711-4.711l4.711-4.711C16.172,4.759,16.172,4.317,15.898,4.045z"></path>
+      </svg>
+    </a><!-- close modal -->
+    <div class="modal-content">
+      <h1 style="text-align:center;font:12px Arial, Helvetica, sans-serif;font-weight: bold">Справка</h1>
+		<div style="font:12px Arial, Helvetica, sans-serif">
+            <p>Для задания зон детектирования нажмите кнопку "Редактировать". Нарисуйте мышкой прямоугольник левым кликом и перетаскиванием. Измените его форму кликая и перетаскивая желтые квадраты по углам полигона.
+            Двигайте полигон целиком кликом на нем и перетаскиванием. Аналогичным образом можно создать до 4-х полигонов на одну камеру. Двойной клик удаляет полигон.
+            Номер полигона добавляется и удаляется автоматически. Редактировать можно как новые, так и ранее созданные полигоны.</p>
+            <p>Задайте направление движения кликом у края получившейся зоны детектирования. Стрелка покажет направление движения транспортного средства (ТС) в зоне.
+            Детектироваться будут только те ТС, направления движения которых совпадают с заданными для этой зоны. Направлений может быть до 4-х. Если направления не заданы, или заданы все 4, детектируется любое движение в зоне.
+            Включенный, сработавший детектор отображается зеленым цветом, несработавший - красным. </p>
+            <p>Тип созданной зоны детектирования может быть "Проезд", он обозначается символом "П" в центре, или "Остановка" - "О".
+            Кликом на символе можно менять тип зоны. "Проезд" - означает детектирование движения - есть движение, детектор включился, нет - детектор выключился. "Остановка" - сравнивает текущее состояние зоны с фоном на котором нет
+            транспортных средств. Если автомобиль есть в зоне, не важно движется он или стоит, детектор сработает и выключится, когда автомобиль покинет зону. Сразу после включения камеры, фон обучается в течение 2-х минут.
+            Во время обучения все зоны типа "Остановка" работают как детекторы движения, постепенно по мере обучения начинают реагировать на остановку ТС. Обучение фона продолжается в течение всего времени работы детектора,
+            позволяя корректно отрабатывать изменения освещенности в кадре, снег, дождь, другие долговременные изменения фона. Сохраните изменения нажатием кнопки "Сохранить".
+            <p>Секция "Параметры" позволяет изменить настройки IP камеры, маски подсети и шлюза по умолчанию, а также задать IP адрес концентратора. Изменения настроек IP сохраняются при нажатии кнопки "Изменить".
+            Кнопка "Удалить все" удаляет все полигоны, работает только в режиме редактирования.
+            Кнопка "Настройки детектора" выводит таблицу параметров, которые задают порог срабатывания зон в режиме проезда и остановки, а также гистерезис в обоих режимах. Измените параметры при необходимости, сохраните их
+            кнопкой "Сохранить" и закройте окно.</p>
+            <p>Для сброса в заводские настройки IP  и подсчета количества проехавших ТС смотри руководство по эксплуатации.</p>
+        </div>
+    </div><!-- content -->
+  </div><!-- modal -->
+</div><!-- overlay -->
+ <script type=text/javascript>
+	var elementsSettings = $("#settings_modal,#settings_modal1");
+	var elementsHelp = $("#help_modal,#help_modal1");
+	//$("input[id=camSettingsButton]").live("change", function(){});
+	$("input[name=camSettingsButton]").click(function(){
+	//$("button").click(function(){
+		elementsSettings.addClass('active');
+		console.log("Settings opened");
+	});
+    $("input[name=helpButton]").click(function(){
+	//$("button").click(function(){
+		elementsHelp.addClass('active');
+		console.log("Help Opened");
+	});
+	$('.close-modal').click(function(){
+		elementsSettings.removeClass('active');
+		elementsHelp.removeClass('active');
+	});
+ </script>
 </body>
 </html>

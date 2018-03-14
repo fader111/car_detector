@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import sys,os, socket
-from flask import Flask, render_template, Response, request, json
+from flask import Flask, render_template, Response, request, json, jsonify
 from carDetector import *
+
 
 app = Flask(__name__)
 
@@ -12,18 +13,24 @@ log.setLevel(logging.ERROR) # выключает информационные с
 
 winMode=0
 showMode = 0
-ipStatus = {"ip": '192.168.0.100',
+ipStatus = {"ip": '192.168.0.100', # удалить эту пургу отсюда нельзя, все валится
             "mask": '255.255.255.0',
             "gateway": '192.168.0.1',
-            "hub": '192.168.0.101'
+            "hub": '192.168.0.39'
             }
-linPath = 'dt2/' # путь к файлу проекта в linux
+linPath = '/home/pi/dt2/' # путь к файлу проекта в linux
 winPath = ''     # путь к файлу проекта в windows
-path = ''        # рабочий путь к файлам проекта
+path = ''        # итоговый, после определения в какой ос работаем, путь к файлам проекта
 
 polygonesFilePath = 'polygones.dat'
 tsNumberMinuteFilePath = 'minTSNumber.dat'
 tsNumberHourFilePath = 'hourTSNumber.dat'
+# параметры востановления настроек IP при зажимании пина 5
+defaultIPConfFile = '/home/pi/dt2/ipconf.dat'
+defaultIP = '192.168.0.31'
+defaultMask = '255.255.255.0'
+defaultGateway = '192.168.0.1'
+defaultHub = '192.168.0.39'
 
 def gen(camera):
     """Video streaming generator function."""
@@ -31,7 +38,6 @@ def gen(camera):
         frame = camera.get_frame()
         yield (b'--frame\r\n'
               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
 
 @app.route('/video_feed')
 def video_feed():
@@ -47,7 +53,9 @@ def putIPsettingsLinux(ip, mask, gateway):
     routComm.read()
     gwComm.read()
     return 0
-
+@app.route("/get_my_ip", methods=["GET"])
+def get_my_ip():
+    return jsonify({'ip': request.remote_addr}), 200
 @app.route('/sendPolyToServer', methods=['GET', 'POST']) # это вызывается при нажатии на кнопку редактировать и отсылает полигоны на сервер
 def sendPolyToServer():
     filePath = path+'polygones.dat'
@@ -59,7 +67,7 @@ def sendPolyToServer():
         with open(filePath, 'w') as f: #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             f.write(polygones)  # Пишем данные полигонов в файл.
     except:
-        print(u"Не удалось сохранить файл ipconf.dat")
+        print(u"Не удалось сохранить файл polygones.dat")
     print('settings saved!')
     return json.dumps('Polygones sent to server...')
 
@@ -68,61 +76,96 @@ def getPolyFromServer():
     #print('polygonesFilePath = ',polygonesFilePath)
     polygones = None
     filePath = path + 'polygones.dat'
-    print('filePath = ',path + 'polygones.dat')
+    #print('filePath = ',path + 'polygones.dat')
     try:
         with open(filePath, 'r') as f: #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             polygones = f.read()  # Пишем данные полигонов в файл.
     except:
-        print(u"Не удалось прочитать файл ipconf.dat")
+        print(u"Не удалось прочитать файл polygones.dat")
     #print('считанные рамки = ',polygones)
     # return json.dumps(ramki)
     return json.dumps(polygones)
 
-@app.route('/sendIpSettingsToServer', methods=['GET', 'POST']) # это вызывается при нажатии на кнопку на форме и сохраняет параметры ip на сервере
-def sendIpSettingsToServer():
-    global ipStatus # спорно, не нужно тут
-    filePath=path+'ipconf.dat'
+@app.route('/sendSettingsToServer', methods=['GET', 'POST']) # это вызывается при нажатии на кнопку на форме и сохраняет параметры ip на сервере
+def sendSettingsToServer():
+    lock.acquire()  # блокировка главного треда вызвавшего эту хрень, на время выполнения этой ф-ции
+    global ipStatus # в теле меняется поле hub
+    global detection_settings
+    filePath_ipconf=path+'ipconf.dat'
+    filePath_config=path+'config'
     if request.method == 'POST':
         print("request.get_data", request.get_data())
-    ip = request.form['ip']
-    mask = request.form['mask']
-    gateway = request.form['gateway']
-    hub = request.form['hub']
-    print('from python: ip', ip,'  mask',mask, '  gateway',gateway,'  hub',hub)
-    if not winMode:
-        with open(filePath, 'w') as f:  # Открываем на чтение и запись.
-            f.write(json.dumps({'ip': ip, 'mask': mask, 'gateway': gateway, 'hub': hub}))  # Пишем данные в файл.
-            print('settings saved!')
-        putIPsettingsLinux(ip, mask, gateway)
-    return json.dumps({'ip': ip,'mask':mask, 'gateway':gateway,'hub':hub})
+        ip = request.form['ip']
+        mask = request.form['mask']
+        gateway = request.form['gateway']
+        hub = request.form['hub']
+        try: # try тут нужен на случай, если в таблице в web где это будет задаваться, вместо int будет str или еще что
+            ft = detection_settings["frame_tresh"]= int(request.form['detection_frame_tresh'])#{"frame_tresh":20,"frame_hyst":10,"move_tresh":60,"move_hyst":58}
+            fh = detection_settings["frame_hyst"] = int(request.form['detection_frame_hyst'])
+            mt = detection_settings["move_tresh"] = int(request.form['detection_move_tresh'])
+            mh = detection_settings["move_hyst"] = int(request.form['detection_move_hyst'])
+        except:
+            pass
+    ipStatus["hub"]=hub
+    # print('from python: ip', ip,'  mask',mask, '  gateway',gateway,'  hub',hub)
+    with open(filePath_ipconf, 'w') as f:  # Открываем на чтение и запись.
+        f.write(json.dumps({'ip': ip, 'mask': mask, 'gateway': gateway, 'hub': hub}))  # Пишем данные в файл.
+        print('IP settings saved!')
+
+    if not winMode: # если в линуксе сохраняем настройки IP и настройки детектора.
+        putIPsettingsLinux(ip, mask, gateway)  # установка сетевых настроек Linux
+
+    with open(filePath_config, 'w') as f:  # настройки детектора
+        f.write(json.dumps({'frame_tresh': detection_settings["frame_tresh"], 'frame_hyst': detection_settings["frame_hyst"], \
+             'move_tresh': detection_settings["move_tresh"],'move_hyst': detection_settings["move_hyst"]}))  # Пишем данные в файл.
+        print('Detector settings saved!')
+    #print("hello from sendSettingsToServer before lock release!")
+    lock.release()  # отпуск блокировки
+    #print ("hello from sendSettingsToServer after lock release!")
+    return json.dumps({'ip': ip,'mask':mask, 'gateway':gateway,'hub':hub,   'detection_frame_tresh':str(ft),\
+                                                                            'detection_frame_hyst':str(fh), \
+                                                                            'detection_move_tresh':str(mt), \
+                                                                            'detection_move_tresh':str(mh), \
+                       })
 
 @app.route('/showStatus', methods=['POST'])
 def showStatus():
-	#if request.method == 'POST':
-	#	print('request.get_data = ',request.get_data())
 	return json.dumps(colorStatus)
 
+@app.route('/showStatusHub', methods=['POST'])
+def showStatusHub():
+    #print('sendColorStatusToHub() ', sendColorStatusToHub())
+    return json.dumps(sendHubStatusToWeb())
+
 @app.route('/', methods=['GET', 'POST'])
+# @app.route('/')
 def index():
     global ipStatus
+    global detection_settings
     if winMode: # в windows варианте все для теста
+        #ip = socket.gethostbyname_ex(socket.gethostname())[2][1] # [2][2] - если торчит второй ethernet адаптер выдает второй по счету ip адрес среди прочих
+        #ip = jsonify({'ip': request.remote_addr}), 200
+        ip = request.remote_addr
         ipStatus = {
-            "ip": socket.gethostbyname_ex(socket.gethostname())[2][2], # выдает второй по счету ip адрес среди прочих
+            # "ip": socket.gethostbyname_ex(socket.gethostname())[2][1], # [2][2] - если торчит выдает второй по счету ip адрес среди прочих
+            "ip": ip,
             "mask":"255.255.255.0", #это просто заглушки для теста
             "gateway":"192.168.0.1",
-            "hub": "192.168.0.38"
+            "hub": ipStatus['hub']
         }
     else:
+        #ip = request.remote_addr
         ipStatus = {"ip":get_ip(),
                     "mask":get_mask(),
                     "gateway":get_gateway(),
                     "hub":get_hub()
                    }
     # print request.form.get['X']
-    if request.method == 'POST':
+    if 0:#request.method == 'POST': #!!!!! сюда не заходит. кандидат на удаление!!!!
         print("request.get_data", request.get_data())
         # по имени определяем от какой формы прилетело
         if b"btn1" in request.get_data(): # если в тексте ответа есть кнопка первой формы, обращаемся к полям отвеченного
+            print("b_btn1!!!!") # похоже сюда вообще не заходит...
             ipStatus['ip'] = str(request.form['ip'])
             ipStatus['mask'] = str(request.form['mask'])
             ipStatus['gateway'] = str(request.form['gateway'])
@@ -133,7 +176,9 @@ def index():
             print ("['hub'] =",ipStatus['hub'])
         if b"btn2" in request.get_data():
             pass
-    return render_template('index.html',title = '1',ipStatus = ipStatus)
+    print("detection_settings from index:",detection_settings )
+    # return render_template('index.html',title = '1',ipStatus = ipStatus,detection_settings=detection_settings)
+    return render_template('index.html',ipStatus = ipStatus,detection_settings=detection_settings)
 def get_ip():
     #ifconfig eth0 | grep 'inet' |grep -v '127.0.0.1'| grep -v 'inet6'|cut -d: -f2|awk '{print $2}' так работает ниже - нет
     #return (os.system("/sbin/ifconfig  | grep 'inet '| grep -v '127.0.0.1' | cut -d: -f2 | awk '{ print $1}'"))
@@ -154,6 +199,7 @@ def get_hub():
     except:
         print (u'не удалось считать файл насяйникэ мана!')
     return data['hub'] # возвращает hub
+
 def ipSetup(): # считывает настройки сети для интерфейса eth0 из файла и сует их в linux
     filePath = path + 'ipconf.dat'
     data ={"gateway": "192.168.0.1", "hub": "192.168.0.38", "ip": "192.168.0.31", "mask": "255.255.255.0"}
@@ -162,22 +208,59 @@ def ipSetup(): # считывает настройки сети для инте�
             data = json.load(f)
     except:
         print(u'Не удалось считать файл ipconf.dat ...')
-    putIPsettingsLinux(data['ip'], data['mask'], data['gateway'])
+    if not winMode:
+        putIPsettingsLinux(data['ip'], data['mask'], data['gateway'])
+    ipStatus["hub"] = data['hub']
 
+def readDetectorSettings(): # считывает настройки детектора из файла и применяет их
+    filePath = path + 'config'
+    data = {'frame_tresh': 20, 'frame_hyst': 10, \
+                 'move_tresh': 30,'move_hyst': 25}
+    try:
+        with open(filePath, 'r', encoding='utf-8') as f: # Пишем данные в файл.
+            data = json.load(f)
+        data['frame_tresh'] = int(data['frame_tresh']) # в файле значения str- надо конвертать в int
+        data['frame_hyst'] = int(data['frame_hyst'])
+        data['move_tresh'] = int(data['move_tresh'])
+        data['move_hyst'] = int(data['move_hyst'])
+    except:
+        print(u'Не удалось считать файл config подставлены значения по умолчанию...')
+    return data
 
+def set_Default_IP_Settings():
+    # воостанавливает дефолтные настройки IP при замыкании пина 5 на землю
+    #print ("сработка set_Default_IP_Settings!!!")
+    ts = time.time()
+    while GPIO.input(5) == False: # при замыкании кнопки
+        # print("false")
+        time.sleep(1)
+        if (time.time() - ts > 2) & (not winMode):
+            with open(defaultIPConfFile, 'w') as f:  # Открываем на чтение и запись.
+                f.write(
+                    json.dumps({'ip': defaultIP, 'mask': defaultMask, 'gateway': defaultGateway, 'hub': defaultHub}))  # Пишем данные в файл.
+                print('default IP settings saved!')
+            rebootComm = os.popen("sudo reboot")  # перезагружаем тушку
+            rebootComm.read()
+    #time.sleep(1)
 
-def updatePolyFromServer(polygonesFilePath): #обновляет в периоде полигоы с сервера
+def updatePolyFromServer(polygonesFilePath): #обновляет в периоде полигоы с сервера запускается таймером  раз в 5 сек
+    # кроме этого по нажатию кнопки, висящей на пине 5 восстанавливает дефолтные настройки.
     #print("Update!!!")
     lock.acquire() # блокировка главного треда вызвавшего эту хрень, на время выполнения обновления полиогонов
-    global ramki,ramkiModes, ramkiDirections, dets,ramki4,dets4,adaptLearningRate, pict, ramkiMonitor, colorStatus, \
-        colorStatusPrev, tsNumbers,tsNumbersPrev, tsNumbersInterval,tsNumbersMinute,tsNumbersMinuteSumm, tsNumbersHour, \
+    # global ramki,ramkiModes, ramkiDirections, dets,ramki4,dets4,adaptLearningRate, pict, ramkiMonitor, colorStatus, \
+    #    \ colorStatusPrev, tsNumbers, tsNumbersPrev, tsNumbersInterval, tsNumbersMinute, tsNumbersMinuteSumm, tsNumbersHour, \
+    # \tsNumbersHourSumm
+    global ramki,ramkiModes, ramkiDirections, dets,adaptLearningRate, pict,  colorStatus, \
+        colorStatusPrev, tsNumbers, tsNumbersPrev, tsNumbersInterval, tsNumbersMinute, tsNumbersMinuteSumm, tsNumbersHour, \
         tsNumbersHourSumm
     ramkiUpd,ramkiModesUpd,ramkiDirectionsUpd = readPolyFile(polygonesFilePath)
     #print ("from updatePolyFromServer rm   - ", ramki)
     #print ("from updatePolyFromServer rmupd- ", ramkiUpd)
     if (ramki != ramkiUpd or ramkiModes != ramkiModesUpd or ramkiDirections != ramkiDirectionsUpd ):
         #проверяем новые рамки на наличие отрицательных значений
-        print ("nesovpad!!!") #,ramki[3], ramkiUpd[3]
+        print (u"Рамки обновлены на клиенте!")# ,ramki, ramkiUpd)
+        print (ramkiDirections)
+        print (ramkiDirectionsUpd)
         for i in ramkiUpd:
             for j in i:
                 for k in j:
@@ -194,16 +277,20 @@ def updatePolyFromServer(polygonesFilePath): #обновляет в период
         #for i in range(len(ramki)):
         #    dets.append(detector(pict, ramki[i], i))
         #    ###print (ramki[i])
-        ramki4 = make4RamkiFrom1(ramki)
-        dets4 = [[] for i in range(len(ramki))]  # подготовили массив для детекторов X4
+        #ramki4 = make4RamkiFrom1(ramki)
+        #dets4 = [[] for i in range(len(ramki))]  # подготовили массив для детекторов X4
 
-        for ramka in range(len(ramki)):  # в dets4 будут лежать объекты класса
-            for ramki1_4 in range(4):  # создание экземпляров класса детекторов по 4 в каждой рамке
-                print ("ramki[ramka][ramki1_4]",ramki[ramka][ramki1_4])
-                dets4[ramka].append(detector(pict, ramki4[ramka][ramki1_4], ramka))
-                ###print (ramki[i])
+        for i in range(len(ramki)):  # в dets4 будут лежать объекты класса
+            dets.append(detector(pict, ramki[i], i))
+            if not 1 in ramkiDirections[i]:
+                dets[i].noRamkiDirectionsFlag = 1 # если в рамке нет направлений, ставим флаг что нет направлений
+            # for ramki1_4 in range(4):  # создание экземпляров класса детекторов по 4 в каждой рамке
+            #     print ("ramki[ramka][ramki1_4]",ramki[ramka][ramki1_4])
+            #     dets4[ramka].append(detector(pict, ramki4[ramka][ramki1_4], ramka))
+            ###   print (ramki[i])
+            dets[i].cos_alfa_calculator()
         adaptLearningRate = adaptLearningRateInit
-        ramkiMonitor = [0 for i in ramki]  # и все остальные рабочие массивы надо изменять, т.к. поменялось количество рамок
+        # ramkiMonitor = [0 for i in ramki]  # и все остальные рабочие массивы надо изменять, т.к. поменялось количество рамок
         colorStatus = [0 for i in ramki]  # массив в котором лежат цвета рамок текущего цикла
         colorStatusPrev = [0 for i in ramki]  # массив в котором лежат цвета рамок предыдущего цикла
         tsNumbers = [0 for i in ramki]  # массив в котором лежит числ проехавших тс
@@ -214,21 +301,50 @@ def updatePolyFromServer(polygonesFilePath): #обновляет в период
         tsNumbersHour = [0 for i in ramki]
         tsNumbersHourSumm = [0 for i in ramki]
         print ('adaptLearningRate-------------', adaptLearningRate)
+    if showMode:
+        pass #cv2.destroyAllWindows() # это не работает, окна плодятся безбожно.
+    if not winMode: # проверяем не нажат-ли пин восстановления дефол IP (только для Linux)
+        set_Default_IP_Settings()
     lock.release() #отпуск блокировки
 
+def sendHubStatusToWeb():
+    hubAddress = ipStatus['hub']
+    addrString = 'http://' + hubAddress + '/detect'
+    try:
+        requests.get(addrString,timeout=(0.1,0.1))
+        ans = requests.post(addrString, json={"cars_detect": colorStatus})
+        #print('hub ',addrString,)
+        return ans.text
+    except:
+        return 'Disconnected...'
+
+def sendColorStatusToHub(): # передача состояний рамок на концентратор методом POST
+# def sendColorStatusToHub(hubAddress = '192.168.0.39:80'):
+    hubAddress = ipStatus['hub']
+    #print('hubAddress = ',hubAddress)
+    addrString = 'http://'+hubAddress+'/detect'
+    try:
+        requests.get(addrString,timeout=(0.1,0.1))
+        ans = requests.post(addrString, json={"cars_detect": colorStatus})
+        #print('hub ',addrString,)
+        #return ans.text
+    except:
+        pass
+        #return 'Disconnected...'
 
 def flaskThread():
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True, use_reloader=False)
     print ("app started!")
 
-def shutdown_server():
+def shutdown_server(): # это работает толко будучи вызванным из http запроса. почему - хз.
     func = request.environ.get('werkzeug.server.shutdown')
     if func is None:
         raise RuntimeError('Not running with the Werkzeug Server')
     func()
 
 if __name__ == '__main__':
-    #showMode = 1
+    tstRamkiTrig = 0
+    # showMode = 1
     if 'win' in sys.platform:
         from camera import Camera
         winMode = 1
@@ -236,17 +352,27 @@ if __name__ == '__main__':
         print ("Windows mode")
     else:
         from camera_pi import Camera
+        import RPi.GPIO as GPIO
+        GPIO.setmode(GPIO.BOARD)
+        GPIO.setup(5, GPIO.IN)
         winMode = 0
         path = linPath
         polygonesFilePath = path+'polygones.dat'
         tsNumberMinuteFilePath = path+'minTSNumber.dat'
         tsNumberHourFilePath = path+'hourTSNumber.dat'
         statusFilePath = linPath + statusFilePath
-        ipSetup() # вызоd программы для установки ip адреса - на винде не делаем..
-        print ("Linux mode")
 
-    #app.run(host='0.0.0.0', port=80, debug=True, threaded=True,use_reloader=False)
+        print ("Linux mode")
+    # вызов программы устанавливающей параметры детектирования
+    ipSetup()  # вызов программы для установки хаба , а для линукса еще и ip адреса,маски и гейта
+    detection_settings = readDetectorSettings()
+    # app.run(host='0.0.0.0', port=80, debug=True, threaded=True,use_reloader=False)
     cameraThread = threading.Thread(target=flaskThread).start()
+
+    #requests.post('http://192.168.0.39:80/detect', json={"cars_detect": colorStatus}).text
+    #colorStatus =[1,0,1,0]
+    #treadSendPost = threading.Thread(target=sendingStatusToHub, args=(colorStatus,))
+    #treadSendPost.start()
 
     ### прошел запуск web сервера в отдельном потоке, началась работа детектора ###
     for param in sys.argv: # запуск проги в режиме визуализации
@@ -258,11 +384,14 @@ if __name__ == '__main__':
     rt = RepeatedTimer(tsCalcTimeInterval, updTsNumsMinute, tsNumberMinuteFilePath)#!!!!!!!!! вызывает функцию которая будет обновлять массив количества проехавших с отсчетами за интервал
     rtUpdPolyFromServer = RepeatedTimer(5, updatePolyFromServer, polygonesFilePath)
     rth = RepeatedTimer(60,updTsNumsHour, tsNumberHourFilePath) # вызывает функцию, которая будет обновлять минутные отсчеты и формировать данные о кол-ве тс за час
-    rtUpdStatusForWeb =  RepeatedTimer(0.4, writeFileColorStatus,*[statusFilePath]) # обновляем статус для web сервера раз в 400 мс !!!!!!!!!!!!!!!!!!!!!!!проблема с мс
+    # rtUpdStatusForHub =  RepeatedTimer(0.4, sendColorStatusToHub,*[ipStatus['hub']]) # обновляем статус для web сервера раз в 400 мс !!!!!!!!!!!!!!!!!!!!!!!проблема с мс
+    rtUpdStatusForHub =  RepeatedTimer(0.4, sendColorStatusToHub) # обновляем статус для Hub'a раз в 400 мс
+    #rtUpdStatusForHub
     rt.start() # запустить таймер
     rth.start()# ...
     rtUpdPolyFromServer.start()
-    rtUpdStatusForWeb.start()
+    rtUpdStatusForHub.start()
+
     ramki, ramkiModes, ramkiDirections = readPolyFile(polygonesFilePath)
     print ('ramki = ',ramki)
     print ('ramkiModes = ',ramkiModes)
@@ -270,20 +399,10 @@ if __name__ == '__main__':
     #print 'cpu_count = ', cpu_count()
     adaptLearningRate = adaptLearningRateInit
     #print ('origWidth origHeight= ', origWidth, origHeight)
-    if winMode:
-        #capture = cv2.VideoCapture(1)   # на рабочем (1)
-        #capture = cv2.VideoCapture('C:/Users/ataranov/test.avi')
-        #camera2 = Camera() # создаем новый экземпляр
-        # _,pict = Camera.video.read()  #вариант для Windows
-        pict = Camera().get_frame_for_internal_proc() # вызов класс метода без создания экземпляра. чистая блажь, можно сделать обычным способом с экземпляром и методом
-        #print('pict =',pict.schape)
-        #pict = Camera().get_frame()
-    else:
-        pict = Camera().get_frame_for_internal_proc() # для линукса
-        print('After else!!!')
-        #pict = cv2.imread('dt2/1.jpg')
+# считывание картинки из camera / camera_pi
+    pict = Camera().get_frame_for_internal_proc() # вызов класс метода без создания экземпляра. чистая блажь, можно сделать обычным способом с экземпляром и методом
+    #pict = cv2.imread('dt2/1.jpg')
     ######pict = cv2.imread('cam.jpg')
-    print('tut!')
     pict = cv2.cvtColor(pict, cv2.COLOR_BGR2GRAY)
     pict = cv2.resize(pict, (width,height))
     # считывание файла с полигонами
@@ -291,15 +410,16 @@ if __name__ == '__main__':
     # в цикле создаем рамки и передем им данные рамок из веб интерфейса
     # обновлено 6.11 из каждой рамки надо сделать 4
     # сначала сфрмировать новые рамки - в 4 раза больше.
-    ramki4 = make4RamkiFrom1(ramki)
-    dets4=[[] for i in  range(len(ramki))] # подготовили массив для детекторов X4
+    ###ramki4 = make4RamkiFrom1(ramki)
+    ###dets4=[[] for i in  range(len(ramki))] # подготовили массив для детекторов X4
+    for i in range(len(ramki)): # в dets будут лежать объекты класса
+        dets.append(detector(pict, ramki[i], i))
 
-    for ramka in range(len(ramki)): # в dets4 будут лежать объекты класса
-        for ramki1_4 in range(4): # создание экземпляров класса детекторов по 4 в каждой рамке
-            #print ("ramki[ramka][ramki1_4]",ramki[ramka][ramki1_4])
-            dets4[ramka].append(detector(pict, ramki4[ramka][ramki1_4],ramka))
-        ###print (ramki[i])
-    learningRateInc = learningRate /100.0
+    for i, j in enumerate(ramkiDirections): # если в рамке нет направлений, то задается сработка со всех направлений
+        if not 1 in ramkiDirections[i]:
+            dets[i].noRamkiDirectionsFlag = 1  # если в рамке нет направлений, ставим флаг что нет направлений
+
+    learningRateInc = learningRate / 100.0
     ts2 = time.time() # time stamp для обновления статуса рамок для web сервера
     ts3 = time.time() # time stamp для обновления рамок при изменении их с web интерфейса
     treadSendPost = None
@@ -339,110 +459,129 @@ if __name__ == '__main__':
             adaptLearningRate -= learningRateInc
         # пробуем считать картинку
         try:
-            if winMode :
-                #_, pict = capture.read()  # старый вариант для Windows со встроенной камерой в ноутбук
-                # _,pict = Camera.video.read()
-                pict = Camera().get_frame_for_internal_proc()
-            else:
-                pict = Camera().get_frame_for_internal_proc()
-                #pict = cv2.imread('dt2/1.jpg')
+            pict = Camera().get_frame_for_internal_proc()
         except:
-            print (u'Выпали нах!')
+            print (u'Нет картинки!')
             continue # если считать картинку не удалось, переходим к след итерации цикла
-        time.sleep(0.02) # искусственная шняга иначе до weba вообще дело не доходит.
-        #try:
-        #    pass #pict.shape
-            # print('pict=',pict)
-        #except:
-        #    continue
-        #print ('imSape Type=',type(pict))
-        #print('len pict=', len(pict))
+        time.sleep(0.02) # искусственная шняга иначе до weba вообще дело не доходит. !!! надо поэкспериментировать!!!!!
         pict = cv2.cvtColor(pict, cv2.COLOR_BGR2GRAY)
         pict = cv2.resize(pict, (width, height))
         #print ('len(ramki)=',len(ramki))
         # if(1):
-        try:
+        if 1:#try:
             for i in range (len(ramki)): # проходим по всем рамкам и назначаем цвет, и считаем ТС
-                # dets[i].getFgmask(pict,ramki[i], adaptLearningRate) # экземпляры класса detector == рамки
+                #dets[i].getFgmask(pict,ramki[i], adaptLearningRate) # экземпляры класса detector == рамки
                 # print ("ramkiModes=",ramkiModes[i])
                 # суть алгоритма: берем направление из ramkiDirections. Если текущее ==1, то формирууем событие "въезд". Это сработка 2-х
                 # рамок на въезде без сработки на выезде. если было событие въезд, далее контролируем событие выезд для этого направления:
                 # сработка хотя-бы одной выездной зоны. если случилосЬ, красим, иначе нет. так, перебираем по всем направлениям.
-                for j in range (4): # перебираем по каждой из 4-х рамок внутри одной большой
-                    if ramkiModes[i]==0: # режим работы рамки "присутствие"
-                    # экземпляры класса detector == рамки разбитые на 4 части:
-                        dets4[i][j].getFgmask(pict,ramki4[i][j], adaptLearningRateInit) # с постоянным соотношением времени обучения фона равного начальному.
-                    else:
-                        dets4[i][j].getFgmask(pict,ramki4[i][j], adaptLearningRate) # либо с изменяемым.
-                    if showMode:
-                        cv2.polylines(pict, [np.array(ramki4[i][j], np.int32)], 1, dets4[i][j].frameColor, 2)
-                        dets4[i][j].winName = "bkg" + str(i)+str(j)
-                        ##print ('#####',i,'=',dets[i].borders[3]- dets[i].borders[0],dets[i].fgmask.shape)
-                        # cv2.imshow(dets4[i][j].winName,dets4[i][j].fgmask) #показывает на отдельных картинках фореграунд маску.
-
+                #for j in range (4): # перебираем по каждой из 4-х рамок внутри одной большой
+                if ramkiModes[i]==0: # режим работы рамки "присутствие"
+                # экземпляры класса detector == рамки разбитые на 4 части:
+                    try: # зачем тут этот try? удалить?
+                        dets[i].getFgmask(pict,ramki[i], adaptLearningRateInit) # с постоянным соотношением времени обучения фона равного начальному.
+                    except:
+                        print ('Exception!!! dets=',dets[i])
+                        continue
+                else:
+                    dets[i].getFgmask(pict,ramki[i], adaptLearningRate) # либо с изменяемым.
+                # dets[i].cos_alfa_calculator() это здесь лишнее, т.к. есть в конструкторе
+                dets[i].directionCalc()  # поместит в dets[i].frameMoveValCalculated направления движухи в рамке
+                ''' здесь много стаффа связанного с разделением рамки на 4 пока не удалил
                 # фиксируем событие "въезд в рамку с определенного направления"
                 if ramkiDirections[i][0]: # заданное направление в рамке условно 'вверх', !!!!! под вопросом нужно-ли оно!!!
-                    if ((dets4[i][2].frameColor or dets4[i][3].frameColor) and not (dets4[i][0].frameColor or dets4[i][1].frameColor)):
+                    if ((dets4[i][2].frameTrigger or dets4[i][3].frameTrigger) and not (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger)):
                         ramkiEntrance[i][2] = 1 # событие въезд условно 'снизу' установлено
                         #print ("sobitie vezd snis!",i)
-                    if not (dets4[i][2].frameColor or dets4[i][3].frameColor):
+                    if not (dets4[i][2].frameTrigger or dets4[i][3].frameTrigger):
                         #print ("len ramkiEntrance = ", len(ramkiEntrance))
                         ramkiEntrance[i][2] = 0 # событие въезд условно 'снизу' сброшено
                         #print ("sobitie vezd snis sbros!!!", i)
                 if ramkiDirections[i][1]: # заданное направление в рамке вправо
-                    if ((dets4[i][3].frameColor or dets4[i][0].frameColor) and not (dets4[i][1].frameColor or dets4[i][2].frameColor)):
+                    if ((dets4[i][3].frameTrigger or dets4[i][0].frameTrigger) and not (dets4[i][1].frameTrigger or dets4[i][2].frameTrigger)):
                         #print ("sobitie vezd sleva!", i)
                         ramkiEntrance[i][3] = 1 # въезд слева
-                    if not (dets4[i][3].frameColor or dets4[i][0].frameColor):
+                    if not (dets4[i][3].frameTrigger or dets4[i][0].frameTrigger):
                         ramkiEntrance[i][3] = 0  # событие въезд 'слева' сброшено
                 if ramkiDirections[i][2]: # заданное направление в рамке условно 'вниз',
-                    if ((dets4[i][0].frameColor or dets4[i][1].frameColor) and not (dets4[i][2].frameColor or dets4[i][3].frameColor)):
+                    if ((dets4[i][0].frameTrigger or dets4[i][1].frameTrigger) and not (dets4[i][2].frameTrigger or dets4[i][3].frameTrigger)):
                         ramkiEntrance[i][0] = 1 # событие въезд условно 'сверху'
-                    if not (dets4[i][0].frameColor or dets4[i][1].frameColor):
+                    if not (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger):
                         ramkiEntrance[i][0] = 0  # событие въезд 'сверху' сброшено
                 if ramkiDirections[i][3]: # заданное направление в рамке влево
-                    if ((dets4[i][1].frameColor or dets4[i][2].frameColor) and not (dets4[i][3].frameColor or dets4[i][0].frameColor)):
+                    if ((dets4[i][1].frameTrigger or dets4[i][2].frameTrigger) and not (dets4[i][3].frameTrigger or dets4[i][0].frameTrigger)):
                         ramkiEntrance[i][1] = 1 # въезд справа
-                    if not (dets4[i][1].frameColor or dets4[i][2].frameColor):
+                    if not (dets4[i][1].frameTrigger or dets4[i][2].frameTrigger):
                         ramkiEntrance[i][1] = 0  # событие въезд 'справа' сброшено
 
                 # фиксируем событие "проезд рамки в определенном направлении" в списке ramkiMonitor
-                if (ramkiDirections[i][0] and ramkiEntrance[i][2] and (dets4[i][0].frameColor or dets4[i][1].frameColor)):
+                if (ramkiDirections[i][0] and ramkiEntrance[i][2] and (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger)):
                     ramkiMonitor[i] = 1  # если направление вверх, был въезд снизу, и потом проезд других рамок, то сработка
                     #print ("Proehali!!! vverh",i)
 
-                if (ramkiDirections[i][1] and ramkiEntrance[i][3] and (dets4[i][1].frameColor or dets4[i][2].frameColor)):
+                if (ramkiDirections[i][1] and ramkiEntrance[i][3] and (dets4[i][1].frameTrigger or dets4[i][2].frameTrigger)):
                     ramkiMonitor[i] = 1  # если направление вправо, был въезд слева, и потом проезд других рамок, то сработка
 
-                if (ramkiDirections[i][2] and ramkiEntrance[i][0] and (dets4[i][2].frameColor or dets4[i][3].frameColor)):
+                if (ramkiDirections[i][2] and ramkiEntrance[i][0] and (dets4[i][2].frameTrigger or dets4[i][3].frameTrigger)):
                     ramkiMonitor[i] = 1  # если направление вниз, был въезд сверху, и потом проезд других рамок, то сработка
 
-                if (ramkiDirections[i][3] and ramkiEntrance[i][1] and (dets4[i][3].frameColor or dets4[i][0].frameColor)):
+                if (ramkiDirections[i][3] and ramkiEntrance[i][1] and (dets4[i][3].frameTrigger or dets4[i][0].frameTrigger)):
                     ramkiMonitor[i] = 1  # если направление влево, был въезд справа, и потом проезд других рамок, то сработка
 
                 # если хоть одна рамка беленькая, то вся рамка сработанная, иначе переодим в несработанное состояние
-                if not (dets4[i][0].frameColor or dets4[i][1].frameColor or dets4[i][2].frameColor or dets4[i][3].frameColor):
+                if not (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger or dets4[i][2].frameTrigger or dets4[i][3].frameTrigger):
                     ramkiMonitor[i] = 0
                 # если направлений нет, или их 4, рамка срабатывает при сработке любой внутренней
                 if not (ramkiDirections[i][0] or ramkiDirections[i][1] or ramkiDirections[i][2] or ramkiDirections[i][0]):
-                    if (dets4[i][0].frameColor or dets4[i][1].frameColor or dets4[i][2].frameColor or dets4[i][3].frameColor):
+                    if (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger or dets4[i][2].frameTrigger or dets4[i][3].frameTrigger):
                         ramkiMonitor[i] = 1
                     else:
                         ramkiMonitor[i]=0
                 if (ramkiDirections[i][0] and ramkiDirections[i][1] and ramkiDirections[i][2] and ramkiDirections[i][0]):
-                    if (dets4[i][0].frameColor or dets4[i][1].frameColor or dets4[i][2].frameColor or dets4[i][3].frameColor):
+                    if (dets4[i][0].frameTrigger or dets4[i][1].frameTrigger or dets4[i][2].frameTrigger or dets4[i][3].frameTrigger):
                         ramkiMonitor[i] = 1
                     else:
                         ramkiMonitor[i]=0
-                if not (testMode): # текущий статус рамок обновляем только в случае, если
-                    if (ramkiMonitor[i] > 0):
-                        colorStatus[i] = 1
-                        if colorStatusPrev[i] == 0:  # при переходе цвета рамки 0->1 прибавляем
-                            tsNumbers[i] += 1
+                '''
+                # обрабатываем движ в рамке - если есть совпадение движа с заданным напр-ем взводим его
+                for k,j in enumerate(ramkiDirections[i]): #(dets[i].frameTrigger>0) &     2 стр colorStatusPrev[i] &  ## k=0,1,2,3 - индекс каждого направления
+                    m = j|dets[i].noRamkiDirectionsFlag # сработка или по признаку того что для рамки задан контроль направления, или есть признак "нет направлений"
+                    if m & (dets[i].frameMoveValCalculated[k] > detection_settings["move_tresh"])| \
+                       m & (dets[i].frameMoveTriggerCommon) & (dets[i].frameMoveValCalculated[k]>(detection_settings["move_tresh"]-detection_settings["move_hyst"])):
+                            # dets[i].frameTrigger: # если задано это направление и вычисленный движ больше порога,
+                        #  или рамка уже сработала и (движ все еще больше гистерезиса или сработал детектор по вычитанию фона) ставим признак сработки по этому направлению
+                        # print ('dets[i].frameMoveValCalculated[k]',k,dets[i].frameMoveValCalculated[k],'из',dets[i].frameMoveValCalculated, 'задано',ramkiDirections[i] )
+                        dets[i].frameMoveTrigger[k] = 1
                     else:
-                        colorStatus[i] = 0
-                    colorStatusPrev[i] = colorStatus[i]  # текущее состояние цвета рамки передаем предыдущему, и переходим к следующей итерации цикла
+                        dets[i].frameMoveTrigger[k] = 0
+                # если есть движ по одному из направлений, есть общий признак того что движ есть
+                if 1 in dets[i].frameMoveTrigger:
+                    dets[i].frameMoveTriggerCommon = 1
+                    dets[i].tsRamkiUpd = time.time()  # устанавливаем таймстамп рамки
+                else:
+                    if time.time()-dets[i].tsRamkiUpd>0.4: # устанавливаем мин. время сработки через таймстамп чтоб не слишком часто переключалась
+                        dets[i].frameMoveTriggerCommon = 0
+                if not (testMode): # текущий статус рамок для web обновляем только в случае, если нет тест мода
+                    if ramkiModes[i] == 0: # если рамка в режиме Проезд
+                        #print('ramkiModes[i]',ramkiModes[i])
+                        if (dets[i].frameMoveTriggerCommon > 0):
+                            colorStatus[i] = 1 # этот статус уезжает в web
+                        else:
+                            colorStatus[i] = 0
+                    else: # если рамка в режиме Остановка
+                        if dets[i].frameMoveTriggerCommon == 1 & dets[i].frameTrigger:
+                            colorStatus[i] = 1
+                            # print('1')
+                        if dets[i].frameTrigger & colorStatus[i]:
+                            colorStatus[i] = 1
+                            # print('2')
+                        else:
+                            colorStatus[i] = 0
+                            # print('3')
+                    if  colorStatus[i] & (not colorStatusPrev[i]):  # при переходе цвета рамки 0->1 прибавляем
+                        tsNumbers[i] += 1
 
+                    colorStatusPrev[i] = colorStatus[i]  # текущее состояние цвета рамки передаем предыдущему, и переходим к следующей итерации цикла
                 draw_str(pict, int(ramki[i][3][0]) + 5, int(ramki[i][3][1]) - 5, str(tsNumbers[i]))  # показывает количество тс проехавших в рамке за время работы программы (надо сделать чтоб за минуту) - dN/dt
                 if ramkiModes[i]==0:
                     currentState = "P"
@@ -450,10 +589,18 @@ if __name__ == '__main__':
                     currentState = "S"
                 draw_str(pict, int(ramki[i][0][0]) + 5, int(ramki[i][0][1]) + 25, currentState)  # показывает режим работы рамки проезд или остановка
                 # print ("ramkiModes[i]",ramkiModes[i])
-                draw_str(pict,int(ramki[i][0][0]) + 5, int(ramki[i][0][1]) + 45, str(ramkiMonitor[i]))
+                draw_str(pict,int(ramki[i][0][0]) + 5, int(ramki[i][0][1]) + 45, str(colorStatus[i]))
                 colorStatusPrev[i] = colorStatus[i]  # текущее состояние цвета рамки передаем предыдущему, и переходим к следующей итерации цикла
-        except IndexError:
-           print (IndexError)
+
+                if showMode:
+                    cv2.polylines(pict, [np.array(ramki[i], np.int32)], 1, dets[i].frameTrigger*255,2)  # рисует рамки на картинке
+                    dets[i].winName = "bkg" + str(i)
+                    ##print ('#####',i,'=',dets[i].borders[3]- dets[i].borders[0],dets[i].fgmask.shape)
+                    # cv2.imshow(dets4[i][j].winName,dets4[i][j].fgmask) #показывает на отдельных картинках фореграунд маску.
+        #except IndexError:
+        #   print ('Exception!-',IndexError)
+        #   print('ramki=', ramki)
+
         #    print ('len(dets4)',len(dets4))
         # print ("ramki==",ramki)
         #except:
@@ -469,20 +616,16 @@ if __name__ == '__main__':
             draw_str(pict, 20, 25, str(int(1000*(time.time()-ts)))) # индикация времени выполнения цикла в мс
             draw_str(pict, 75, 25, "LearnRate "+str(round(adaptLearningRate,5)))
             cv2.imshow("input", pict)
+            for i in range(len(ramki)):
+                pass #cv2.imshow(str(i),dets[i].indicator)
     # print ("tsNumbers---",tsNumbers)
-        # передача состояний рамок на концентратор методом POST
-        #print ('colorStatus',colorStatus)
-        #requests.post('http://192.168.1.254:80/detect', json={"cars_detect": colorStatus}).text
-        #treadSendPost = threading.Thread(target=sendingStatusToHub, args=(colorStatus))
-        #treadSendPost.start()
-	#print (str(int(1000*(time.time()-ts))))
-	#os.system('clear')
+
         c = cv2.waitKey(1) # выход из цикла и закрытие окон по нажатию Esc
         if c == 27:
             rt.stop()
             rth.stop()
             rtUpdPolyFromServer.stop()
-            rtUpdStatusForWeb.stop()
+            rtUpdStatusForHub.stop()
             # shutdown_server() # убивает насмерть web сервант однако не работает требует HTTP запроса
             #if cameraThread :
             #    cameraThread.stop()
