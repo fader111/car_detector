@@ -122,6 +122,7 @@ def sendSettingsToServer():
     #print("hello from sendSettingsToServer before lock release!")
     lock.release()  # отпуск блокировки
     #print ("hello from sendSettingsToServer after lock release!")
+    #print('ipStatus["hub"] ',ipStatus["hub"] )
     return json.dumps({'ip': ip,'mask':mask, 'gateway':gateway,'hub':hub,   'detection_frame_tresh':str(ft),\
                                                                             'detection_frame_hyst':str(fh), \
                                                                             'detection_move_tresh':str(mt), \
@@ -142,6 +143,9 @@ def showStatusHub():
 def index():
     global ipStatus
     global detection_settings
+    hub=ipStatus['hub']
+    if request.method == 'POST':
+        hub = request.form['hub']
     if winMode: # в windows варианте все для теста
         #ip = socket.gethostbyname_ex(socket.gethostname())[2][1] # [2][2] - если торчит второй ethernet адаптер выдает второй по счету ip адрес среди прочих
         #ip = jsonify({'ip': request.remote_addr}), 200
@@ -151,7 +155,7 @@ def index():
             "ip": ip,
             "mask":"255.255.255.0", #это просто заглушки для теста
             "gateway":"192.168.0.1",
-            "hub": ipStatus['hub']
+            "hub": hub
         }
     else:
         #ip = request.remote_addr

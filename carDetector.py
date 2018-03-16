@@ -207,6 +207,8 @@ class detector():
         # длина медианы
         medianax = math.sqrt((y12 - y30)*(y12 - y30) + (x12 - x30)*(x12 - x30))
         medianay = math.sqrt((x01 - x23)*(x01 - x23) + (y23 - y01)*(y23 - y01))
+        if medianax == 0: medianax=1
+        if medianay == 0: medianay=1
         # print('medianax= ',medianax)
         # print('medianay= ',medianay)
         '''
@@ -223,10 +225,18 @@ class detector():
         # print('y01 , y23 ', y01 , y23)
         # print('x12 , x30 ', x12 , x30)
         # print('y12 , y30 ', y12 , y30)
-        self.cos_alfax = (x12-x30) / medianax
-        self.sin_alfax = (y12-y30) / medianax
-        self.cos_alfay = (y23-y01) / medianay
-        self.sin_alfay = (x01-x23) / medianay
+        if medianax != 0:
+            self.cos_alfax = (x12-x30) / medianax
+            self.sin_alfax = (y12-y30) / medianax
+        else:
+            self.cos_alfax = 0
+            self.sin_alfax = 1
+        if medianay != 0:
+            self.cos_alfay = (y23-y01) / medianay
+            self.sin_alfay = (x01-x23) / medianay
+        else:
+            self.cos_alfay = 1
+            self.sin_alfay = 0
         # print('self.cos_alfax ', self.cos_alfax)
         # print('self.sin_alfax ', self.sin_alfax)
         # print('self.cos_alfay ', self.cos_alfay)
