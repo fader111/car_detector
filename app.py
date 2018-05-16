@@ -1,16 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import sys,os, socket
-from flask import Flask, render_template, Response, request, json, jsonify
+from flask import Flask, session, render_template, Response, request, json, jsonify
+#from flask_session import Session
 from carDetector import *
 
-
 app = Flask(__name__)
+# app.config['SESSION_TYPE'] = 'filesystem'
+# app.config['SECRET_KEY'] = 'reds209ndsldssdsljdsldsdsljdsldksdksdsdfsfsfsfis'
+# sess = Session()
+# sess.init_app(app)
+#app.secret_key()
 
 import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR) # выключает информационные сообщения flask оставляет только аварийные
-
+url=1 # тут вместо url номер камеры
 winMode=0
 showMode = 0
 ipStatus = {"ip": '192.168.0.100', # удалить эту пургу отсюда нельзя, все валится
@@ -32,17 +37,33 @@ defaultMask = '255.255.255.0'
 defaultGateway = '192.168.0.1'
 defaultHub = '192.168.0.39'
 
-def gen(camera):
+tsNumbers = [] #  массив с количеством задетектированных тс
+tsNumbersPrev = [] # массив с количеством тс предыдущего шага, чтобы его вычитать из текущего и находить разницу
+tsNumbersInterval = [] # массив с количеством тс за интервал (10с)[a,b,c,d]
+tsNumbersMinute = [] # массив с количеством тс с проездами за 1 интервал за минуту [[_,_,_][][][]]
+tsNumbersMinuteSumm = [] # массив с количеством тс за минуту [[][][][]]
+tsNumbersHour = [] # массив с количеством тс с проездами за 1 интервал за час [[_,_,_][][][]]
+tsNumbersHourSumm =[] # массив с количеством тс за час [[][][][]]
+
+def genWeb(camera):
     """Video streaming generator function."""
     while True:
         frame = camera.get_frame()
         yield (b'--frame\r\n'
               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
+def genInternal(camera):
+    """ streaming video для показа картинки во время отладки"""
+    while True:
+        frame = camera.get_frame_for_internal_proc()
+        #time.sleep(0.05)
+        yield (frame)
+
+
 @app.route('/video_feed')
 def video_feed():
     """Video streaming route. Put this in the src attribute of an img tag."""
-    return Response(gen(Camera()),
+    return Response(genWeb(Camera()),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 # вызывается при старте и при изменении настроек IP в форме - устанавливает в linux новые
 def putIPsettingsLinux(ip, mask, gateway):
@@ -63,13 +84,17 @@ def sendPolyToServer():
         print("request.get_data (poly)== ", request.get_data())
         polygones = request.form["req"]
         print ('polygones=',polygones)
-    try:
-        with open(filePath, 'w') as f: #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            f.write(polygones)  # Пишем данные полигонов в файл.
-    except:
-        print(u"Не удалось сохранить файл polygones.dat")
-    print('settings saved!')
-    return json.dumps('Polygones sent to server...')
+        if "polygones" in polygones: # так надо проверять, т.к. иногда чушь посылает.
+            print ('polygones type IS RIGHT!')
+            try:
+                with open(filePath, 'w') as f: #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    f.write(polygones)  # Пишем данные полигонов в файл.
+            except:
+                print(u"Не удалось сохранить файл polygones.dat")
+            print('settings saved!')
+            return json.dumps('Polygones sent to server...')
+        print('polygones type IS WRONG!')
+        return json.dumps('Wrong data sent to server...')
 
 @app.route('/getPolyFromServer', methods=['GET', 'POST'])
 def getPolyFromServer():
@@ -88,13 +113,16 @@ def getPolyFromServer():
 
 @app.route('/sendSettingsToServer', methods=['GET', 'POST']) # это вызывается при нажатии на кнопку на форме и сохраняет параметры ip на сервере
 def sendSettingsToServer():
+    #session=[]
     lock.acquire()  # блокировка главного треда вызвавшего эту хрень, на время выполнения этой ф-ции
     global ipStatus # в теле меняется поле hub
     global detection_settings
     filePath_ipconf=path+'ipconf.dat'
     filePath_config=path+'config'
     if request.method == 'POST':
-        print("request.get_data", request.get_data())
+        print("request.get_data from sendSettingsToServer: ", request.get_data())
+        # session['username'] = 'I'
+        #print('session=', sess)
         ip = request.form['ip']
         mask = request.form['mask']
         gateway = request.form['gateway']
@@ -131,7 +159,15 @@ def sendSettingsToServer():
 
 @app.route('/showStatus', methods=['POST'])
 def showStatus():
-	return json.dumps(colorStatus)
+	# return json.dumps(colorStatus)
+    return json.dumps([colorStatus,tsNumbersMinuteSumm,tsNumbersHourSumm])
+
+@app.route('/showTsTable', methods=['POST', 'GET'])
+def showTsTable():
+    if request.method == 'POST':
+        pass
+        #print("showTsTable")
+    return render_template('tsNumberTable.html', len=len(ramki), tsNumbersMinuteSumm= tsNumbersMinuteSumm, tsNumbersHourSumm = tsNumbersHourSumm)
 
 @app.route('/showStatusHub', methods=['POST'])
 def showStatusHub():
@@ -145,7 +181,7 @@ def index():
     global detection_settings
     hub=ipStatus['hub']
     if request.method == 'POST':
-        hub = request.form['hub']
+        hub = request.form['hub'] # сюда кажется не заходит
     if winMode: # в windows варианте все для теста
         #ip = socket.gethostbyname_ex(socket.gethostname())[2][1] # [2][2] - если торчит второй ethernet адаптер выдает второй по счету ip адрес среди прочих
         #ip = jsonify({'ip': request.remote_addr}), 200
@@ -164,25 +200,23 @@ def index():
                     "gateway":get_gateway(),
                     "hub":get_hub()
                    }
-    # print request.form.get['X']
-    if 0:#request.method == 'POST': #!!!!! сюда не заходит. кандидат на удаление!!!!
-        print("request.get_data", request.get_data())
-        # по имени определяем от какой формы прилетело
-        if b"btn1" in request.get_data(): # если в тексте ответа есть кнопка первой формы, обращаемся к полям отвеченного
-            print("b_btn1!!!!") # похоже сюда вообще не заходит...
-            ipStatus['ip'] = str(request.form['ip'])
-            ipStatus['mask'] = str(request.form['mask'])
-            ipStatus['gateway'] = str(request.form['gateway'])
-            ipStatus['hub'] = str(request.form['hub'])
-            print ("['ip'] =",ipStatus['ip'])
-            print ("['mask'] =",ipStatus['mask'])
-            print ("['gateway'] =",ipStatus['gateway'])
-            print ("['hub'] =",ipStatus['hub'])
-        if b"btn2" in request.get_data():
-            pass
     print("detection_settings from index:",detection_settings )
     # return render_template('index.html',title = '1',ipStatus = ipStatus,detection_settings=detection_settings)
     return render_template('index.html',ipStatus = ipStatus,detection_settings=detection_settings)
+
+@app.route('/post_ts_number', methods=['GET', 'POST']) # отвечает на post запрос о количестве машин
+def post_ts_number():
+    if request.method == 'POST':
+        req = request.get_data()
+        if "hour" in str(req):
+            #print("hour asks",tsNumbersHourSumm)
+            return json.dumps(tsNumbersHourSumm)
+        if "minute" in str(req):
+            #print("minuten asks",tsNumbersMinuteSumm)
+            return json.dumps(tsNumbersMinuteSumm)
+        # print("request.get_data()== ", request.get_data())
+    return json.dumps("Wrong request")
+
 def get_ip():
     #ifconfig eth0 | grep 'inet' |grep -v '127.0.0.1'| grep -v 'inet6'|cut -d: -f2|awk '{print $2}' так работает ниже - нет
     #return (os.system("/sbin/ifconfig  | grep 'inet '| grep -v '127.0.0.1' | cut -d: -f2 | awk '{ print $1}'"))
@@ -336,6 +370,50 @@ def sendColorStatusToHub(): # передача состояний рамок н�
         pass
         #return 'Disconnected...'
 
+def updTsNumsMinute(tsNumberMinuteFilePath): #обновляет по тикеру tsNumbers и tsNumbersPrev
+    global tsNumbers, tsNumbersPrev, tsNumbersMinute, tsNumbersMinuteSumm, tsNumbersInterval
+    for i,mem in enumerate(tsNumbers):
+        #print('tsNumbersMinuteSumm ', tsNumbersMinuteSumm)
+        tsNumbersInterval[i]=mem-tsNumbersPrev[i] # набиваем массив разницей за интервал (10 сек)
+        tsNumbersPrev[i] = mem # переписываем в предыдущий число из текущего
+        #try:
+        #    pass
+        #    assert type(tsNumbersMinute[i])==list,'tsNumbersMinute ='+str(tsNumbersMinute) ### tsNumbersMinute[i] обязательно должен быть массивом
+        #except IndexError:
+        #    print (IndexError,tsNumbersMinute)
+        if (type(tsNumbersMinute[i])!=list):
+            tsNumbersMinute[i]=[0 for j in range(12)]
+        tsNumbersMinute[i].append(tsNumbersInterval[i])  # добавляет в конец разницу за интервал
+        tsNumbersMinute[i].pop(0) # и выкидывает первый в очереди
+        tsNumbersMinuteSumm[i]=sum(tsNumbersMinute[i]) # кладет сумму в массив где копятся проезды за минуту
+        if mem> maxNumberTS: # если количество посчитанных тс станет слишком велико, чтобы не отжирать память, сбрасывать его
+            tsNumbers[i]-= maxNumberTS
+            tsNumbersPrev[i]-= maxNumberTS
+    #if (adaptLearningRate < 0.001):
+        #os.system('cls')
+        #print (tsNumbers)  # = [])  # массив с количеством задетектированных тс
+        #print (tsNumbersPrev  # = [])  # массив с количеством тс предыдущего шага, чтобы его вычитать из текущего и находить разницу
+        #print (tsNumbersInterval  # = [])  # массив с количеством тс за интервал (10с)[a,b,c,d]
+        #print (tsNumbersMinute  # = [])  # массив с количеством тс с проездами за 1 интервал за минуту [[_,_,_][][][]]
+        #print (tsNumbersMinuteSumm  # = [])  # массив с количеством тс за минуту [[][][][]]
+    #writeFile(tsNumberMinuteFilePath, tsNumbersMinuteSumm)### запись файла в linux было раньше в версии php, больше не актуально
+
+def updTsNumsHour(tsNumberHourFilePath):
+    global tsNumbersHour, tsNumbersHourSumm
+    for i, mem in enumerate(tsNumbers):
+        #print('tsNumbersHour[',i,'] ', tsNumbersHour[i])
+        if (type(tsNumbersHour[i])!=list):
+            tsNumbersHour[i]=[0 for j in range(60)]
+        tsNumbersHour[i].append(tsNumbersMinuteSumm[i])
+        tsNumbersHour[i].pop(0)
+        tsNumbersHourSumm[i]=sum(tsNumbersHour[i])
+    #if (adaptLearningRate < 0.001):
+        # os.system('cls')
+        #print (tsNumbersHour)  # = []  # массив с количеством тс с проездами за 1 минуту [[_,_,_][][][]]
+        #print (tsNumbersHourSumm)  # = []  # массив с количеством тс за час [[][][][]]
+    # !!!!!!!!!!!!!!!!!writeFile(linTSNumberHourFilePath, tsNumbersHourSumm)### запись файла в linux
+    #writeFile(tsNumberHourFilePath, tsNumbersHourSumm)  ### запись файла в linux было раньше в версии php, больше не актуально
+
 def flaskThread():
     app.run(host='0.0.0.0', port=80, debug=False, threaded=True, use_reloader=False)
     print ("app started!")
@@ -353,12 +431,18 @@ if __name__ == '__main__':
         from camera import Camera
         winMode = 1
         path = winPath
-        print ("Windows mode")
+        print ("Windows mode, path=",path)
     else:
-        from camera_pi import Camera
-        import RPi.GPIO as GPIO
-        GPIO.setmode(GPIO.BOARD)
-        GPIO.setup(5, GPIO.IN)
+        linPath = '/home/developer/Camera_piter'
+        print("Linux mode, path=",path)
+        if 'arm' in os.popen("uname -m").read(): # если запущено на малине
+            linPath = '/home/pi/dt2'
+            from camera_pi import Camera
+            import RPi.GPIO as GPIO
+            GPIO.setmode(GPIO.BOARD)
+            GPIO.setup(5, GPIO.IN)
+        else:
+            from camera import Camera
         winMode = 0
         path = linPath
         polygonesFilePath = path+'polygones.dat'
@@ -366,7 +450,8 @@ if __name__ == '__main__':
         tsNumberHourFilePath = path+'hourTSNumber.dat'
         statusFilePath = linPath + statusFilePath
 
-        print ("Linux mode")
+        print ("Linux mode; path=",linPath)
+    print("url=",url)
     # вызов программы устанавливающей параметры детектирования
     ipSetup()  # вызов программы для установки хаба , а для линукса еще и ip адреса,маски и гейта
     detection_settings = readDetectorSettings()
@@ -404,7 +489,10 @@ if __name__ == '__main__':
     adaptLearningRate = adaptLearningRateInit
     #print ('origWidth origHeight= ', origWidth, origHeight)
 # считывание картинки из camera / camera_pi
-    pict = Camera().get_frame_for_internal_proc() # вызов класс метода без создания экземпляра. чистая блажь, можно сделать обычным способом с экземпляром и методом
+    capture = Camera()
+    pict = capture.get_frame_for_internal_proc() # вызов класс метода без создания экземпляра. чистая блажь, можно сделать обычным способом с экземпляром и методом
+
+    # pict = next(genInternal(capture)) # вариант запуска с генератором на малине оказывается оч медленным
     #pict = cv2.imread('dt2/1.jpg')
     ######pict = cv2.imread('cam.jpg')
     pict = cv2.cvtColor(pict, cv2.COLOR_BGR2GRAY)
@@ -463,7 +551,10 @@ if __name__ == '__main__':
             adaptLearningRate -= learningRateInc
         # пробуем считать картинку
         try:
-            pict = Camera().get_frame_for_internal_proc()
+            pict = capture.get_frame_for_internal_proc()
+            #pict = Camera().get_frame_for_internal_proc()
+            # pict = next(genInternal(capture))
+
         except:
             print (u'Нет картинки!')
             continue # если считать картинку не удалось, переходим к след итерации цикла
@@ -646,5 +737,5 @@ if __name__ == '__main__':
 
 
 
-	
+
 

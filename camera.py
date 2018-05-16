@@ -15,15 +15,17 @@
 import cv2
 
 class Camera(object):
-    #video = cv2.VideoCapture("http://188.187.119.130:8080/hls/6176/5a2d33233089738ea8ff/playlist.m3u8?tcp")
+    # video = cv2.VideoCapture("http://otts1.ottv.biz/iptv/R54WXML82FGLXF/519/index.m3u8?tcp")
     video = cv2.VideoCapture(1)
     def __init__(self):
         # Using OpenCV to capture from device 0(1). If you have trouble capturing
         # from a webcam, comment the line below out and use a video file
         # instead.
+        #print("const!")
         try:
             #self.video.set(cv2.CAP_PROP_FRAME_WIDTH, 320) # это не работает
             #self.video.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+            # self.video = cv2.VideoCapture(url)
             self.jpeg = cv2.imread("C:\\Users\\ataranov\\Projects\\flask-video-streaming-1\\1.jpg")
             #cv2.imshow("q",self.jpeg)
         except:

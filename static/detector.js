@@ -39,7 +39,8 @@
                         polyFromServer = jQuery.parseJSON(response)
                         //console.log('poly from GetPolygones=',response);
                         //polyFromServer = JSON.parse(polyFromServer);
-                        console.log('polyFromServer from getPolyFromServer=',polyFromServer);
+                        // console.log('polyFromServer from getPolyFromServer=',polyFromServer);
+                        console.log('polyFromServer from getPolyFromServer length=',polyFromServer.length);
                         //console.log('polyFromServer.indexOf(\"polygones\")=',polyFromServer.indexOf('polygones')); //3
 
                         if (polyFromServer.indexOf('polygones') >= 0) { // если файл с данными полигонов пустой, в нем не будет строки "polygones"
@@ -166,7 +167,8 @@
                 }
                 return 0;
             }
-			function assygnArrowsMode(){ // ф-ция расставляет рамки всех полигонов на экране. анализируя ramkiArrows.
+			// ф-ция расставляет стрелки всех полигонов на экране. анализируя задание - массив ramkiArrows.
+            function assygnArrowsMode(){
 				//console.log("assygnArrowsMode entrance!");
 				if (ramkiArrows==undefined||ramkiArrows.length==0)
 					putNullsToRamkiArrows();
@@ -194,8 +196,10 @@
 						ramkiArrows.push([0,0,0,0]);
 				}
 			}
-            function dirsPath(path) { // функция делает path для стрелочек направлений из path рамок. формат аргумента такой: [["M", 186, 322],["L", 186, 322]....
-               var arrowsPath=[[[],[],[]],[[],[],[]],[[],[],[]],[[],[],[]]]; // результирующий массив с координатами точек стрелочек вида [[[x,y],[x,y],[x,y]],[..],[..],[..]]
+			// делает path для стрелочек направлений из path рамок. формат аргумента такой: [["M", 186, 322],["L", 186, 322]....
+            // результирующий массив с координатами точек стрелочек вида [[[x,y],[x,y],[x,y]],[..],[..],[..]]
+            function dirsPath(path) {
+               var arrowsPath=[[[],[],[]],[[],[],[]],[[],[],[]],[[],[],[]]];
 //                console.log(path[0][1]);
                 for (polyKernel=0;polyKernel<4;polyKernel++){ //перебираем по всем 4-м углам полигона начиная с левого верхнего, создавая 4 стрелки
                     x1=arrowsPath[polyKernel][0][0] = path[polyKernel][1];          // координата x 1 угла стрелки совпадает с x первого угла полигона
@@ -234,7 +238,8 @@
                 //console.log("arrowsPath = ",arrowsPath);
                 return (arrowsPath);
             }
-            function directionArrowsCreate(polygonNumber, path) { //функция, которая построит стрелочки направления движения в рамке для 1 полигона.
+             // cтроит стрелочки направления движения в рамке для 1 полигона.
+            function directionArrowsCreate(polygonNumber, path) {
 				var strokeWidth;
 				var opacity = 0.7;
 				if (setArrows==null|setArrows==undefined)
@@ -255,7 +260,8 @@
 						strokeWidth=3;
 						opacity = 0.7;
 					}
-					setArrows[polygonNumber] = arrows.push(r.path("M" + arrPath[polyKernel][0][0] +" "+(arrPath[polyKernel][0][1])+
+					setArrows[polygonNumber] = arrows.push(r.path(
+					    "M" + arrPath[polyKernel][0][0] +" "+(arrPath[polyKernel][0][1])+
 						"L" +(arrPath[polyKernel][1][0])+" "+(arrPath[polyKernel][1][1])+
 						"L" +(arrPath[polyKernel][2][0])+" "+(arrPath[polyKernel][2][1])+
 						"Z")
@@ -267,20 +273,36 @@
 						.data("polygonNumber",polygonNumber) //тут важно: data относится к r.path, см. на круглые скобки
 						//.attr({stroke: "red",fill:"white",opacity: 0.3}))
 						.mouseover(function(){
+						    // console.log("over!");
 							if (editMode == 1) {
-								this.attr({"stroke":"red","stroke-width":"3","opacity":"0.7"});
+                                // console.log("over! edit m=",editMode);
+							    this.attr({fill:"red","stroke-width":"3","opacity":"0.7"});
 								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
-									this.attr({"stroke-width":"3"})
+									this.attr({"stroke-width":"3"});
+								else{
+								    // this.attr({"stroke-width":"0"});
+								    // console.log("over!");
+								};
 							}
 						})
 						.mouseout(function(){
+						    // console.log("out!");
 							if (editMode == 1) {
-								this.attr({"stroke":"red","stroke-width":"0","opacity":"0.3"})
+								// this.attr({"stroke":"red","stroke-width":"0","opacity":"0.3",fill:"red"})
 								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
 									this.attr({"stroke-width":"3","opacity":"0.6"})
+                                else {
+                                    //this.attr({"stroke": "transparent","opacity":"1","fill":"red"})
+                                    this.attr({"stroke-width":"0","fill":"transparent"})
+                                    // console.log("out-else!!");
+                                    // console.log('this.attr({"stroke"=', this.attr("stroke"));
+                                    // console.log('this.attr({"stroke-width"=', this.attr("stroke-width"));
+                                    // console.log('this.attr({"fill=', this.attr("fill"));
+                                }
 							}
 						})
 						.mousedown(function(){
+						    // console.log("down!");
 							if (editMode == 1) {
 								this.attr({fill:"red","stroke-width":"3","opacity":"0.6"})
 								//тут при клике в массив состояний стрелок ramkiArrows должна добавляться стрелка, если ее там еще нет, или удаляться, если она там есть.
@@ -293,21 +315,31 @@
 							}
 						})
 						.mouseup(function(){
+						    // console.log("UP!");
 							if (editMode == 1) {
 								if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
 									this.attr({"stroke-width":"3","opacity":"0.6"})
-								else
-									this.attr({"stroke-width":"0","opacity":"0.3"})
-								//supp = function(){ //сомнительное решение, ничего не дает....
-									//console.log("supp!");
-									assygnArrowsMode();
-									req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
-									sendPolyToServer(req);
+								else {
+                                    this.attr({"stroke-width": "0","opacity":"0"});
+                                    // console.log("UP_ELSE!");
+                                };
+
+								//assygnArrowsMode();
+								req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // modes_poly здесь это r.set
+								sendPolyToServer(req);
 								//};
 								//setTimeout(supp,3000);
 							}
 						})
-						)
+                        // .mousemove(function() {
+                        //     if (editMode == 1) {
+                        //         if (ramkiArrows[polygonNumber][this.data("arrowNumber")]==1)
+							// 		this.attr({"stroke-width":"3","opacity":"0.6"})
+							// 	else
+							// 		this.attr({"stroke-width":"0"})
+                        //     }
+                        // })
+                    )
 				}
 				//console.log("setArrows=",setArrows)
             };
@@ -392,24 +424,12 @@
                                             polygones[k - 1].attr({path: new_path});
                                             assygnPolygonNumber();
                                             assygnPolygonMode();
+                                            assygnArrowsMode();
                                             req = convertPolyToString(polygones, W, H, modes_poly,ramkiArrows); // *********************** //
                                         })
-//                                        .mouseup(function () { // кароч ничо тут не выходит. хотел стрелки рисовать не вышло. потом мож руки дойдут...
-//                                            if (arrows != null) arrows.remove();
-//                                            for (i = arrows.length - 1; i >= 0; i--) arrows.pop(); //удалем старые стрелки направлений перед созд. новых
-//                                            console.log("from mUp на квадрате",arrows)
-//                                            if (internalFlag==1){
-//                                                var new_path = polygones[k - 1].attr("path");
-//                                                for(i=0;i<4;i++) {
-//                                                    console.log("na kvadratah!", i, arrows);
-//                                                    directionArrowsCreate(this.data("polygonNumber"),new_path); //создаем стрелки
-//                                                };
-//                                                internalFlag=0; //выполняем только 1 раз, а не 4.
-//                                            }
-//                                        });
 								}
 								// теперь рисуем стрелки направлений
-								directionArrowsCreate(this.data("polygonNumber"),path_); // в функцию создания стрелок передается номер и path полигона.
+								//directionArrowsCreate(this.data("polygonNumber"),path_); // в функцию создания стрелок передается номер и path полигона.
 								//console.log("this.data(polygonNumber)=",this.data("polygonNumber"));
                                 rectsCover.push(rec); // и потом их суем в общий для них всех сет
                                 text = k;//this.start.k;
@@ -505,7 +525,7 @@
                 )
             }
 
-            // функция рисует полигоны
+            // рисует полигоны
             function circleff() {
                 //console.log('polyFromServer = ',polyFromServer)
                 //console.log('polygones = ',polyFromServer.polygones)
@@ -580,15 +600,32 @@
 						assygnArrowsMode();
                         //if (rects!= null)rects.remove();
                     }
-                })//*/
+                })
+                /*
+                .mouseover(function(){ // надо убирать стрелочки, если они не отмечены. mouseout на самой стрелочке не работает.
+                    if(editMode==1){
+                        for (plNum=0; plNum < ramkiArrows.length; plNum++){
+                            for (plKernel=0;plKernel<4;plKernel++){
+                                if (1){//(setArrows[plNum][plKernel].data("arrowNumber")==0) {
+                                    //console.log("[plNum] ",plNum,"[plKernel]",plKernel,setArrows[plNum][plKernel].attr("stroke-width"));
+                                    //setArrows[plNum][plKernel].attr({"stroke-width": "0"});
+                                    //console.log('plNum, plKernel',plNum,plKernel, "attr=",setArrows[plNum][plKernel].attr("stroke-width"));//тут какаято херня!!!
+                                }
+                            }
+                        };
+                    }
+                })
+                //*/
             //.mouseup(function(){console.log(".ommouseup снаружи ->  nums_poly = ",nums_poly);}) // бесполезно что-то делать в этой ф-ции; она не отлавливается
             //.mousemove(function(x,y){console.log("k=!=!=",k);});
-            var delButton = document.getElementById('delButton ');
+            var delButton = document.getElementById('delButton');
+							
             //delButton.onclick = function delete_all(){
             function delete_all() {
                 //var ret = confirm('Стереть?');
                 if (editMode != 0) {
                     //*
+					if (arrows != null) arrows.remove();
                     // след 2 строки удаляют полигоны и массив полигонов. порядок строк не менять, иначе полигоны не удаляются
                     polygones.remove();		// оставить строку, иначе остаются полигоны
                     for (i = polygones.length - 1; i >= 0; i--) polygones.splice(i, 1);	// оставить строку, иначе остаются нулевые члены массива
@@ -615,7 +652,8 @@
                     editMode = 1;	// то включить р.р.
                     editButton.value = 'Сохранить';
                     editButton.innerHTML = 'Сохранить';
-                    //console.log ('editButton.value = Сохранить');
+					delButton.disabled = ''; //false
+                    //console.log ('delButton.disabled',delButton.disabled);
                     editModeAlert.innerHTML = "Режим редактирования";
                     editModeAlert.style.color = '#0000FF'
                 }
@@ -623,6 +661,7 @@
                     editMode = 0;	// то выключить
                     editButton.value = 'Редактировать';
                     editButton.innerHTML = 'Редактировать';
+					delButton.disabled = 'true';
                     editModeAlert.innerHTML = "";
                     if (rects != null) rects.remove();  // удалить вс квадратики по углам полингонов если не в режиме радактирования
                     sendPolyToServer(req);
@@ -634,9 +673,10 @@
             // статусы полигонов считывать с сервера и обновлять на странице.
             function circleStatusRequest(){
                 getStatusFromServer(polygones);
-                getStatusHubFromServer()
+                getStatusHubFromServer();
             };
             setInterval(circleStatusRequest, 40);
+            setInterval(getTsTableFromServer,1000) // обновляет значение таблицы с количеством проехавших тс
 
             function notEditModeAlert() {
                 editModeAlert.innerHTML = "Добавление, изменение и удаление зон возможно только в режиме редактирования";
@@ -660,7 +700,7 @@
                 var kep = event.which;
                 //if (event.keyCode == shift && capslock)console.log("shiftCapslock");
                 //console.info("Нажата клавиша",kep,"d - дигностика связи");
-                if (kep == 68) { // 68 - код клавиши d
+                if (kep == 46) { // 68 - код клавиши d; 46 -код клавиши del
                     if (hubData.style.visibility == "hidden") hubData.style.visibility = "visible"; else hubData.style.visibility = "hidden";
                     if (polyData.style.visibility == "hidden") polyData.style.visibility = "visible"; else polyData.style.visibility = "hidden";
                 }

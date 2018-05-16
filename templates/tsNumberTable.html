@@ -1,0 +1,17 @@
+    <table border="1" cellpadding="1" cellspacing="1" style="width: 150px">
+        <tbody>
+            <tr>
+                <td style="width: 20px; text-align: center;"></td>
+                <td style="width: 30px;text-align: center;">Мин</td>
+                <td style="width: 30px;text-align: center;">Час</td>
+            </tr>
+            {% set a,b=1,2 %}
+            {% for item in range(len) %}
+                <tr>
+                    <td style="text-align: center;">{{ item + 1 }}</td>
+                    <td style="text-align: center;">{{tsNumbersMinuteSumm[item] }}</td>
+                    <td  style="text-align: center;">&nbsp;{{ tsNumbersHourSumm[item] }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>

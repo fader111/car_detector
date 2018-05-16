@@ -56,8 +56,10 @@ function getStatusFromServer(polygones) {
                     var json = jQuery.parseJSON(response)
                     {
 						document.getElementById("polyData").innerHTML = "state: "+response; // Выводим ответ сервера
-						polyStatus = json;
-						//console.log('json=',json);
+						// document.getElementById("tsNumberTable_1_0").innerHTML = json[1][0]; //
+						// document.getElementById("tsNumberTable_1_1").innerHTML = json[1][1]; //
+						polyStatus = json[0];
+						// console.log('json[0]=',json[0]);
 						status='';
 						for(i=0;i<polyStatus.length;i++){
 							if( polyStatus[i] == '0' | polyStatus[i] == '1' ) status += polyStatus[i];
@@ -77,7 +79,25 @@ function getStatusFromServer(polygones) {
                 }
             });
 }
+function getTsTableFromServer() {
+	$.ajax({
+                type: "POST",
+				url: "/showTsTable",
+				data:"",
+                type: 'POST',
+                success: function(response) {
+                    // var json = jQuery.parseJSON(response)
+                    {
+						document.getElementById("tsNumberTable").innerHTML = response; // Выводим таблицу сформированную в python
+					}
 
+                    // console.log('respons=+=',json);
+                },
+                error: function(error) {
+                    //console.log(error);
+                }
+            });
+}
 function getStatusHubFromServer() {
 	$.ajax({
                 type: "POST",

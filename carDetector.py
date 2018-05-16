@@ -78,13 +78,6 @@ tsNumberHourFilePath = 'hourTSNumber.dat'
 """
 statusFilePath = 'status.dat'
 
-tsNumbers = [] #  массив с количеством задетектированных тс
-tsNumbersPrev = [] # массив с количеством тс предыдущего шага, чтобы его вычитать из текущего и находить разницу
-tsNumbersInterval = [] # массив с количеством тс за интервал (10с)[a,b,c,d]
-tsNumbersMinute = [] # массив с количеством тс с проездами за 1 интервал за минуту [[_,_,_][][][]]
-tsNumbersMinuteSumm = [] # массив с количеством тс за минуту [[][][][]]
-tsNumbersHour = [] # массив с количеством тс с проездами за 1 интервал за час [[_,_,_][][][]]
-tsNumbersHourSumm =[] # массив с количеством тс за час [[][][][]]
 tsCalcTimeInterval = 5 # раз в это число секунд считать тс может быть 1,2,3,4,5,6,10,15,20,30,60
 maxNumberTS =10000 # если накопленное количество тс станет слишком большим, сбрасывать его.
 
@@ -266,52 +259,10 @@ class detector():
             cv2.putText(self.indicator, str(self.frameMoveValCalculated[1]), (50, 20), cv2.FONT_HERSHEY_PLAIN, 0.8, 255, 2)
             cv2.waitKey(1)
 
-def updTsNumsMinute(tsNumberMinuteFilePath): #обновляет по тикеру tsNumbers и tsNumbersPrev
-    #print ('updTSMinute!!!!!!!!!!!!!!!!!!')
-    for i,mem in enumerate(tsNumbers):
-        tsNumbersInterval[i]=mem-tsNumbersPrev[i] # набиваем массив разницей за интервал (10 сек)
-        tsNumbersPrev[i] = mem # переписываем в предыдущий число из текущего
-        #try:
-        #    pass
-        #    assert type(tsNumbersMinute[i])==list,'tsNumbersMinute ='+str(tsNumbersMinute) ### tsNumbersMinute[i] обязательно должен быть массивом
-        #except IndexError:
-        #    print (IndexError,tsNumbersMinute)
-        if (type(tsNumbersMinute[i])!=list):
-            tsNumbersMinute[i]=[]
-        tsNumbersMinute[i].append(tsNumbersInterval[i])  # добавляет в конец разницу за интервал
-        tsNumbersMinute[i].pop(0) # и выкидывает первый в очереди
-        tsNumbersMinuteSumm[i]=sum(tsNumbersMinute[i]) # кладет сумму в массив где копятся проезды за минуту
-        if mem> maxNumberTS: # если количество посчитанных тс станет слишком велико, чтобы не отжирать память, сбрасывать его
-            tsNumbers[i]-= maxNumberTS
-            tsNumbersPrev[i]-= maxNumberTS
-    #if (adaptLearningRate < 0.001):
-        #os.system('cls')
-        #print (tsNumbers  # = [])  # массив с количеством задетектированных тс
-        #print (tsNumbersPrev  # = [])  # массив с количеством тс предыдущего шага, чтобы его вычитать из текущего и находить разницу
-        #print (tsNumbersInterval  # = [])  # массив с количеством тс за интервал (10с)[a,b,c,d]
-        #print (tsNumbersMinute  # = [])  # массив с количеством тс с проездами за 1 интервал за минуту [[_,_,_][][][]]
-        #print (tsNumbersMinuteSumm  # = [])  # массив с количеством тс за минуту [[][][][]]
-    writeFile(tsNumberMinuteFilePath, tsNumbersMinuteSumm)### запись файла в linux
-
-def updTsNumsHour(tsNumberHourFilePath):
-    #print ('updTSHour!!!!!!!!!')
-    for i, mem in enumerate(tsNumbers):
-        if (type(tsNumbersHour[i])!=list):
-            tsNumbersHour[i]=[]
-        tsNumbersHour[i].append(tsNumbersMinuteSumm[i])
-        tsNumbersHour[i].pop(0)
-        tsNumbersHourSumm[i]=sum(tsNumbersHour[i])
-    #if (adaptLearningRate < 0.001):
-        # os.system('cls')
-        #print (tsNumbersHour)  # = []  # массив с количеством тс с проездами за 1 минуту [[_,_,_][][][]]
-        #print (tsNumbersHourSumm)  # = []  # массив с количеством тс за час [[][][][]]
-    # !!!!!!!!!!!!!!!!!writeFile(linTSNumberHourFilePath, tsNumbersHourSumm)### запись файла в linux
-    writeFile(tsNumberHourFilePath, tsNumbersHourSumm)  ### запись файла в linux
-
 def draw_str(dst, x, y, s):
-    cv2.putText(dst, s, (x+1, y+1), cv2.FONT_HERSHEY_PLAIN, 2.0, (0, 0, 0), thickness = 2, lineType=1)
+    cv2.putText(dst, s, (x+1, y+1), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 0), thickness = 2, lineType=1)
     # cv2.putText(dst, s, (x, y), cv2.FONT_HERSHEY_PLAIN, 2.0, (255, 255, 255), lineType=cv2.CV_AA)
-    cv2.putText(dst, s, (x, y), cv2.FONT_HERSHEY_PLAIN, 2.0, (255, 255, 255), lineType=1)
+    cv2.putText(dst, s, (x, y), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 255), lineType=1)
 
 def writeFile(filePath,status):
     with open(filePath,'w') as f:

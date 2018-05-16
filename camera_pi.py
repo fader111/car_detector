@@ -16,6 +16,7 @@ class Camera(object):
     last_access = 0  # time of last client access to the camera
 
     def __init__(cls):
+        #print ("Init!!!")
         pass#cls.video = cv2.VideoCapture("http://188.187.119.130:8080/hls/6176/5a2d33233089738ea8ff/playlist.m3u8?tcp")
 
     def initialize(self):
