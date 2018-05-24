@@ -13,6 +13,7 @@ class Camera(object):
     thread2 = None  # background thread that reads frames from camera
     frame = 1  # current frame is stored here by background thread
     frameCV2 = None # same, but as a numpy array
+    frameCV2_cut = None
     last_access = 0  # time of last client access to the camera
 
     def __init__(cls):
@@ -21,6 +22,7 @@ class Camera(object):
 
     def initialize(self):
         if Camera.thread is None:
+            # print(' INIT!!')
             # start background frame thread
             Camera.thread = threading.Thread(target=self._thread)
             Camera.thread.start()
@@ -41,12 +43,14 @@ class Camera(object):
         self.initialize()
         #self.frameCV2 = cv2.imread('dt2/1.jpg')
         return self.frameCV2
+        # return self.frameCV2_cut
 
     @classmethod
     def _thread(cls):
         with picamera.PiCamera() as camera:
             # camera setup
-            camera.resolution = (800, 600)
+            camera.resolution = (400,300)#(320, 240) # 480x360
+            print('camera.resolution ',camera.resolution )
             camera.hflip = True
             camera.vflip = True
             # let camera warm up
@@ -55,41 +59,9 @@ class Camera(object):
             for foo in camera.capture_continuous(rawCapture, format='bgr', use_video_port=True):
                 cls.frameCV2 = foo.array
                 rawCapture.truncate(0)
+                #cls.frameCV2_cut = cv2.cvtColor(cls.frameCV2, cv2.COLOR_BGR2GRAY)
                 if time.time() - cls.last_access > 30:
                     print('!BREAK!!')
                     break
 
         cls.thread = None
-
-''' это было в примере
-    @classmethod
-    def _thread(cls):
-        with picamera.PiCamera() as camera:
-            # camera setup
-            camera.resolution = (800, 600)
-            camera.hflip = True
-            camera.vflip = True
-
-            # let camera warm up
-            camera.start_preview()
-            time.sleep(2)
-
-            rawCapture = PiRGBArray(camera) # я добавил
-
-            stream = io.BytesIO()
-            for foo in camera.capture_continuous(stream, 'jpeg',
-                                                 use_video_port=True):
-                # store frame
-                stream.seek(0)
-                cls.frame = stream.read()
-
-                # reset stream for next frame
-                stream.seek(0)
-                stream.truncate()
-
-                # if there hasn't been any clients asking for frames in
-                # the last 10 seconds stop the thread
-                if time.time() - cls.last_access > 10:
-                    break
-        cls.thread = None
-'''

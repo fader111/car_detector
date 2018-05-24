@@ -45,22 +45,6 @@
         <button id="changeButton" name="btn1" style="width:178px" value="Изменить" class ="btn btn-primary" onclick="sendSettingsToServer();"/>Изменить</button>
     </div>
 </form-->
-<!--кнопки справа от картинки -->
-
-<div style="float:left; top: 70px; left: 880px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">
-    <p><button style="width:178px" type="button" id="editButton" value="Редактировать" class="btn btn-primary"/>Редактировать</button></p>
-    <p><button style="width:178px" type="button" id="delButton" value="Удалить все" class="btn btn-primary" disabled="true" />Удалить все</button></p>
-{#    <input type="button" name="camSettingsButton" id="camSettingsButton" value="Настройки детектора" class="button"/><br>#}
-    <!-- Кнопка, вызывающее модальное окно -->
-    <p><a style="width:178px" href="#settings_modal" class="btn btn-primary" data-toggle="modal">Настройки детектора</a></p>
-    <a style="width:178px" href="#help_modal" class="btn btn-primary" data-toggle="modal">Справка</a><br><br>
-    <!--input type="button" name="helpButton" id="helpButton" value="Справка" class="button"/><br><br-->
-    <!--input name="inp1" type="text" value= "30"><br>
-    <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/-->
-    <span id="polyData" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hidden</span><br><br>
-    <span id="hub_Data" style="visibility:hidden; font:14px Arial, Helvetica, sans-serif;">hubData</span><br><br>
-    <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
-</div>
 <!-- слой картинки -->
 <!--div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute"-->
 <div id="img_div" style="float:left; top: 70px; left: 50px; width:800px;height:600px;position: absolute">
@@ -70,13 +54,32 @@
     <!--img id ="pict" style="width:100%;height:100%"/-->
 </div>
 
-<!--слой с таблицей для показа сколько машин проехало за минуту и за час-->
-<div id="tsNumberTable" style="float:left; top: 90px; left: 650px; width:100px;height:100px;position: absolute">
-</div>
-
 <!-- слой рисования -->
 <div id="holder" style="float:left; top: 70px; left: 50px; position: absolute"/>
+<!--слой элементов управления справа от картинки-->
+<div style="float:right; left: 20px; width:100px;height:100px;position: relative">
+    <!--слой с таблицей для показа сколько машин проехало за минуту и за час-->
+    {#<div id="tsNumberTable" style="float:left; top: 80px; left: 660px; width:100px;height:100px;position: absolute">#}
+    <div id="tsNumberTable" style="float:top; width:100px; position: relative">
+    </div>
 
+    <!--кнопки справа от картинки -->
+    {#<div style="float:left; top: 70px; left: 880px; position: absolute; /*border: 1px solid #333; /* Параметры рамки */">#}
+    <div style="float:top ; top: 20px; position: relative;">
+        <p><button style="width:178px" type="button" id="editButton" value="Редактировать" class="btn btn-primary"/>Редактировать</button></p>
+        <p><button style="width:178px" type="button" id="delButton" value="Удалить все" class="btn btn-primary" disabled="true" />Удалить все</button></p>
+    {#    <input type="button" name="camSettingsButton" id="camSettingsButton" value="Настройки детектора" class="button"/><br>#}
+        <!-- Кнопка, вызывающее модальное окно -->
+        <p><a style="width:178px" href="#settings_modal" class="btn btn-primary" data-toggle="modal">Настройки детектора</a></p>
+        <a style="width:178px" href="#help_modal" class="btn btn-primary" data-toggle="modal">Справка</a><br><br>
+        <!--input type="button" name="helpButton" id="helpButton" value="Справка" class="button"/><br><br-->
+        <!--input name="inp1" type="text" value= "30"><br>
+        <input id="" name="btn2" style="visibility:visible;" type="submit" value="GO" class="button"/-->
+        <span id="polyData" style="visibility:hidden; font:10px Arial, Helvetica, sans-serif;">hidden</span><br><br>
+        <span id="hub_Data" style="visibility:hidden; font:10px Arial, Helvetica, sans-serif;">hubData</span><br><br>
+        <!--img id ="pict2" style="width:50px;height:50px" title="Подсказка"-->
+    </div>
+</div>
 <br>
 <div id="settings_modal" class="modal fade" style="display: none;">
   <div class="modal-dialog">

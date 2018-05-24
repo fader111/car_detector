@@ -284,6 +284,7 @@ def set_Default_IP_Settings():
 def updatePolyFromServer(polygonesFilePath): #обновляет в периоде полигоы с сервера запускается таймером  раз в 5 сек
     # кроме этого по нажатию кнопки, висящей на пине 5 восстанавливает дефолтные настройки.
     #print("Update!!!")
+    print('ts=',cicle)
     lock.acquire() # блокировка главного треда вызвавшего эту хрень, на время выполнения обновления полиогонов
     # global ramki,ramkiModes, ramkiDirections, dets,ramki4,dets4,adaptLearningRate, pict, ramkiMonitor, colorStatus, \
     #    \ colorStatusPrev, tsNumbers, tsNumbersPrev, tsNumbersInterval, tsNumbersMinute, tsNumbersMinuteSumm, tsNumbersHour, \
@@ -425,6 +426,7 @@ def shutdown_server(): # это работает толко будучи выз�
     func()
 
 if __name__ == '__main__':
+    cicle=0
     tstRamkiTrig = 0
     # showMode = 1
     if 'win' in sys.platform:
@@ -491,12 +493,12 @@ if __name__ == '__main__':
 # считывание картинки из camera / camera_pi
     capture = Camera()
     pict = capture.get_frame_for_internal_proc() # вызов класс метода без создания экземпляра. чистая блажь, можно сделать обычным способом с экземпляром и методом
-
+    # print('pict!!!!!!!! ',pict )
     # pict = next(genInternal(capture)) # вариант запуска с генератором на малине оказывается оч медленным
     #pict = cv2.imread('dt2/1.jpg')
     ######pict = cv2.imread('cam.jpg')
     pict = cv2.cvtColor(pict, cv2.COLOR_BGR2GRAY)
-    pict = cv2.resize(pict, (width,height))
+    # pict = cv2.resize(pict, (width,height))
     # считывание файла с полигонами
     dets = []  # будущие экземпляры класса detector  dets ниже везде заменть в while
     # в цикле создаем рамки и передем им данные рамок из веб интерфейса
@@ -552,7 +554,7 @@ if __name__ == '__main__':
         # пробуем считать картинку
         try:
             pict = capture.get_frame_for_internal_proc()
-            #pict = Camera().get_frame_for_internal_proc()
+            # pict = Camera().get_frame_for_internal_proc()
             # pict = next(genInternal(capture))
 
         except:
@@ -560,7 +562,7 @@ if __name__ == '__main__':
             continue # если считать картинку не удалось, переходим к след итерации цикла
         time.sleep(0.02) # искусственная шняга иначе до weba вообще дело не доходит. !!! надо поэкспериментировать!!!!!
         pict = cv2.cvtColor(pict, cv2.COLOR_BGR2GRAY)
-        pict = cv2.resize(pict, (width, height))
+        ######### pict = cv2.resize(pict, (width, height)) #(400,300)
         #print ('len(ramki)=',len(ramki))
         # if(1):
         if 1:#try:
@@ -706,6 +708,7 @@ if __name__ == '__main__':
         #!!!!!!!!!!!!!!!!!!! начать отсюда - вынести нах в отдельную ф-цию !!!!! if (int(1000*(time.time()-ts2)>400)):
             ######################## Закоменчено для работы в Windows #########################writeFile(linStatusFilePath,colorStatus)
         #    ts2 = time.time()
+        cicle = str(int(1000*(time.time()-ts)))
         if showMode:
             #print ('adaptLearningRate',adaptLearningRate)
             draw_str(pict, 20, 25, str(int(1000*(time.time()-ts)))) # индикация времени выполнения цикла в мс
