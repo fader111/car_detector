@@ -60,7 +60,7 @@ ramkiEntrance =[] # массив для фиксации события въез
 ramkiMonitor = [] # массив для монироринга статуса больших рамок (введен после добавления направлений для отобр статуса большой рамки текстом)
 colorStatus = [] # цвета рамок
 height = 300 # px размер окна в котором происходит проверка не менять!!! чревато !!!
-width = 400 # px ##
+width =  400 # px ##
 origWidth, origHeight = 800, 600 # размер окна браузера для пересчета
 #detection_settings["frame_tresh"] = 20 # frame overlap, %
 #detection_settings["frame_hyst"] = 10 # frame hysteresis, %
@@ -79,7 +79,7 @@ tsNumberHourFilePath = 'hourTSNumber.dat'
 statusFilePath = 'status.dat'
 
 tsCalcTimeInterval = 5 # раз в это число секунд считать тс может быть 1,2,3,4,5,6,10,15,20,30,60
-maxNumberTS =10000 # если накопленное количество тс станет слишком большим, сбрасывать его.
+maxNumberTS = 10000 # если накопленное количество тс станет слишком большим, сбрасывать его.
 
 # linImagePath = '/dev/shm/mjpeg/cam.jpg' # - это от старой версии кандидат на удаление
 #linImagePath = 'C:/WebServers/home/savepic/www/pic.jpg' а это не вертать!

@@ -35,7 +35,7 @@ class Camera(object):
     def get_frame(self):
         Camera.last_access = time.time()
         self.initialize()
-        self.frame = cv2.imencode('.jpg', self.frameCV2)[1].tobytes()              
+        #self.frame = cv2.imencode('.jpg', self.frameCV2)[1].tobytes()
         return self.frame
 
     def get_frame_for_internal_proc(self): # store frame for cv2 
@@ -50,6 +50,7 @@ class Camera(object):
         with picamera.PiCamera() as camera:
             # camera setup
             camera.resolution = (400,300)#(320, 240) # 480x360
+            #####camera.framerate=15
             print('camera.resolution ',camera.resolution )
             camera.hflip = True
             camera.vflip = True
@@ -58,6 +59,7 @@ class Camera(object):
             rawCapture = PiRGBArray(camera, size=camera.resolution)
             for foo in camera.capture_continuous(rawCapture, format='bgr', use_video_port=True):
                 cls.frameCV2 = foo.array
+                cls.frame = cv2.imencode('.jpg', cls.frameCV2)[1].tobytes()
                 rawCapture.truncate(0)
                 #cls.frameCV2_cut = cv2.cvtColor(cls.frameCV2, cv2.COLOR_BGR2GRAY)
                 if time.time() - cls.last_access > 30:

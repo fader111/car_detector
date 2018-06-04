@@ -47,10 +47,12 @@ tsNumbersHourSumm =[] # массив с количеством тс за час 
 
 def genWeb(camera):
     """Video streaming generator function."""
+    # frame = camera.get_frame()
     while True:
+        time.sleep(0.01)
         frame = camera.get_frame()
-        yield (b'--frame\r\n'
-              b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        # yield (0)
 
 def genInternal(camera):
     """ streaming video для показа картинки во время отладки"""
@@ -553,9 +555,9 @@ if __name__ == '__main__':
             adaptLearningRate -= learningRateInc
         # пробуем считать картинку
         try:
-            pict = capture.get_frame_for_internal_proc()
+            # pict = capture.get_frame_for_internal_proc()
             # pict = Camera().get_frame_for_internal_proc()
-            # pict = next(genInternal(capture))
+            pict = next(genInternal(capture))
 
         except:
             print (u'Нет картинки!')
